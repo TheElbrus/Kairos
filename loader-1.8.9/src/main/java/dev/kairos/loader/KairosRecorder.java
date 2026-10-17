@@ -252,6 +252,9 @@ public final class KairosRecorder {
         // (:39-40) and EntityPlayerSP.onLivingUpdate's item-use *0.2 (:596-599) (ADR 0010).
         MovementInput mi = player.movementInput;
         GameSettings settings = Minecraft.getMinecraft().gameSettings;
+        // During a scenario run the runner has swapped settings.keyBindSprint for its
+        // ScriptedSprintKey (GameSettings.java:145 is a plain field), so this reads the
+        // scripted value rather than the physical keyboard.
         int sprint = settings.keyBindSprint.isKeyDown() ? 1 : 0;      // GameSettings.java:145, KeyBinding.java:81
         return TraceInput.fromAxes(
                 mi.jump ? 1 : 0,

@@ -6,7 +6,8 @@ import net.minecraft.util.ChatComponentText; // mc-src/net/minecraft/util/ChatCo
 import net.minecraft.util.EnumChatFormatting; // mc-src/net/minecraft/util/EnumChatFormatting.java
 
 /**
- * {@code /kairos record start <name> | stop | status}.
+ * {@code /kairos record start <name> | stop | status} (task 0.4) and
+ * {@code /kairos scenario run <name> | runmany <name> <n>} (task 0.5).
  *
  * <p>Client-side only, registered on {@code ClientCommandHandler}. That makes it work in
  * singleplayer without touching the integrated server and without a dependency on
@@ -23,12 +24,15 @@ import net.minecraft.util.EnumChatFormatting; // mc-src/net/minecraft/util/EnumC
 public final class CommandKairos extends CommandBase {
 
     static final String USAGE =
-            "/kairos record start <name>  |  /kairos record stop  |  /kairos record status";
+            "/kairos record start <name>  |  /kairos record stop  |  /kairos record status"
+            + "  |  /kairos scenario run <name>  |  /kairos scenario runmany <name> <n>";
 
     private final KairosRecorder recorder;
+    private final KairosScenarioRunner scenarioRunner;
 
-    public CommandKairos(KairosRecorder recorder) {
+    public CommandKairos(KairosRecorder recorder, KairosScenarioRunner scenarioRunner) {
         this.recorder = recorder;
+        this.scenarioRunner = scenarioRunner;
     }
 
     @Override
@@ -53,6 +57,8 @@ public final class CommandKairos extends CommandBase {
     public void processCommand(ICommandSender sender, String[] args) {
         if (args.length >= 2 && "record".equals(args[0])) {
             processRecord(sender, args);
+        } else if (args.length >= 2 && "scenario".equals(args[0])) {
+            processScenario(sender, args);
         } else {
             usage(sender);
         }
@@ -75,8 +81,42 @@ public final class CommandKairos extends CommandBase {
         }
     }
 
+    private void processScenario(ICommandSender sender, String[] args) {
+        if ("run".equals(args[1])) {
+            if (args.length < 3) {
+                usage(sender);
+                return;
+            }
+            this.scenarioRunner.run(args[2], 1, sender);
+        } else if ("runmany".equals(args[1])) {
+            if (args.length < 4) {
+                usage(sender);
+                return;
+            }
+            int runs;
+            try {
+                runs = Integer.parseInt(args[3]);
+            } catch (NumberFormatException e) {
+                error(sender, "run count must be a number >= 1");
+                return;
+            }
+            if (runs < 1) {
+                error(sender, "run count must be a number >= 1");
+                return;
+            }
+            this.scenarioRunner.run(args[2], runs, sender);
+        } else {
+            usage(sender);
+        }
+    }
+
     private static void usage(ICommandSender sender) {
         sender.addChatMessage(new ChatComponentText(
                 EnumChatFormatting.GRAY + "[Kairos] " + USAGE));
+    }
+
+    private static void error(ICommandSender sender, String message) {
+        sender.addChatMessage(new ChatComponentText(
+                EnumChatFormatting.RED + "[Kairos] " + message));
     }
 }

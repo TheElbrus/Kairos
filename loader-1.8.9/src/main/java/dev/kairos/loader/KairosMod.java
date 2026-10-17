@@ -17,9 +17,10 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.input.Keyboard;
 
 /**
- * Loader entry point for Kairos: a startup banner and keybind (task 0.3) plus the trace
- * recorder wired to {@code /kairos record ...} (task 0.4). No physics and no planning
- * live here (AGENTS.md: the loader is thin).
+ * Loader entry point for Kairos: a startup banner and keybind (task 0.3), the trace
+ * recorder wired to {@code /kairos record ...} (task 0.4), and the scenario harness
+ * wired to {@code /kairos scenario ...} (task 0.5). No physics and no planning live
+ * here (AGENTS.md: the loader is thin).
  */
 // The explicit version is deliberate: FMLModContainer reads the annotation's version
 // first (mc-src/net/minecraftforge/fml/common/FMLModContainer.java:196) and warns when it
@@ -32,6 +33,9 @@ public class KairosMod {
 
     /** Task 0.4: writes one trace line per client tick while enabled (ADR 0010). */
     private final KairosRecorder recorder = new KairosRecorder();
+
+    /** Task 0.5: builds the arena, feeds scripted inputs, records the run. */
+    private final KairosScenarioRunner scenarioRunner = new KairosScenarioRunner(this.recorder);
 
     // KeyBinding(String, int, String): KeyBinding.java:68. Raw LWJGL key codes are what
     // GameSettings itself uses (GameSettings.java:139-143), e.g. keyBindJump = 57.
@@ -52,11 +56,14 @@ public class KairosMod {
 
         // The recorder listens for client ticks and world unloads.
         MinecraftForge.EVENT_BUS.register(this.recorder);
+        // The scenario runner listens too and uses HIGHEST/LOWEST priority to bracket the
+        // recorder's own tick handlers (see KairosScenarioRunner's class comment).
+        MinecraftForge.EVENT_BUS.register(this.scenarioRunner);
 
         // Client-side command, so /kairos works in singleplayer without the server:
         //   ClientCommandHandler.instance  mc-src/net/minecraftforge/client/ClientCommandHandler.java:29
         //   registerCommand(ICommand)     mc-src/net/minecraft/command/CommandHandler.java:119
-        ClientCommandHandler.instance.registerCommand(new CommandKairos(this.recorder));
+        ClientCommandHandler.instance.registerCommand(new CommandKairos(this.recorder, this.scenarioRunner));
     }
 
     // TickEvent.Phase at TickEvent.java:14; ClientTickEvent at TickEvent.java:34.

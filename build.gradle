@@ -1,0 +1,4 @@
+allprojects {
+    group = 'dev.kairos'
+    version = '0.1.0-SNAPSHOT'
+}

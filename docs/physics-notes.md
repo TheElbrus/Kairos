@@ -537,7 +537,7 @@ Start (end of tick 16): `pos = (0.5, 65.0, 5.174592338963489)`,
   on Peaceful (`EntityPlayer.java:519-526`) and `World` ticks block/weather updates.
   None of them showed up in the trace; they are world content, not player physics.
 - **Paused frames.** `updateEntities` (and `theWorld.tick`) are skipped while the game is
-  paused (`Minecraft.java:1735-1740`), so no tick is recorded (`te` gap guard in
+  paused (`Minecraft.java:1735-1740, 1749-1753`), so no tick is recorded (`te` gap guard in
   `KairosRecorder`).
 
 ---

@@ -11,7 +11,7 @@ Environment for task 0.2 (exact versions used; CI reproduces the JDK):
 
 | Phase | Gate | Status | Tag | Date | Notes |
 |---|---|---|---|---|---|
-| 0   | checklist | [~] | phase0-done | | 0.1-0.6 done |
+| 0   | checklist | [x] | phase0-done | 2026-10-17 | 0.1-0.6 done, 0.6 reviewed APPROVE; Phase 0 closing |
 | 0.5 | M1 clip   | [ ] | phase05-done | | |
 | 1   | checklist | [ ] | phase1-done | | |
 | 2   | checklist + gate script | [ ] | phase2-done | | |
@@ -29,4 +29,4 @@ Phase 0 tasks (PLAN.md section 7):
 | 0.3 | Mod loads, logs a line, one keybind | [x] |
 | 0.4 | Recorder writes one trace line per tick | [x] |
 | 0.5 | Scenario harness `/Kairos scenario run <name>` | [x] |
-| 0.6 | `physics-notes.md` draft with citations | [x] |
+| 0.6 | `physics-notes.md` draft with citations | [x] reviewed |

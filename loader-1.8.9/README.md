@@ -61,8 +61,18 @@ JDK 8. Set `KAIROS_PRINT_ONLY=1` to print the command without launching. Details
 
 ## Status
 
-**Skeleton** (Task 0.3): launches, logs the banner, one keybind echoing a `core` constant.
+**Building and running** (task 0.3) and **recording** (task 0.4): the dev client launches,
+logs the banner, the P keybind echoes a `core` constant, and `/kairos record start|stop|status`
+writes one JSONL trace line per client tick (format frozen in `../docs/adr/0010-trace-format-v1.md`).
 See `../docs/STATUS.md` and `../docs/JOURNAL.md`.
 
-Minecraft APIs (key binding, client tick, chat) are **cited from `mc-src/`** (MCP `stable_22`,
-gitignored); nothing here uses an API from memory.
+Recording a trace in the dev client:
+
+```
+/kairos record start test1     # refuses to overwrite; writes run/kairos/traces/test1.jsonl
+... play ...
+/kairos record stop            # gray "stopped ... after N ticks"; red line means the gap guard fired
+```
+
+Minecraft APIs (key binding, client tick, chat, commands, movement input) are **cited from
+`mc-src/`** (MCP `stable_22`, gitignored); nothing here uses an API from memory.

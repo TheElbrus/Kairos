@@ -1,0 +1,18 @@
+[
+  {
+    "modid": "${modid}",
+    "name": "Kairos",
+    "description": "Tick-exact Minecraft 1.8.9 parkour planner. Singleplayer / private worlds only.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "https://github.com/TheElbrus/Kairos",
+    "updateUrl": "",
+    "authorList": [
+      "TheElbrus"
+    ],
+    "credits": "Loader scaffold adapted from lineargraph/Forge1.8.9Template (The Unlicense); see CREDITS.md.",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]

@@ -7,10 +7,11 @@ Environment for task 0.2 (exact versions used; CI reproduces the JDK):
 - JUnit: 5.14.4 (Jupiter, via `junit-bom`) - test scope only
 - ArchUnit: 1.5.1 - test scope only
 - CI: GitHub Actions, `actions/setup-java@v6` with Temurin 25, runs `./gradlew :core:test`
+- Loader (separate build): Gradle 8.8 wrapper, essential Loom 0.10.0.5, MCP `stable_22`, Forge `1.8.9-11.15.1.2318-1.8.9`; Gradle runs on JDK 21 (`~/.jdks/ms-21.0.12.1`), game bytecode on Java 8 via Foojay-provisioned Temurin `8u504-b01` (`.gradle-home/jdks/`)
 
 | Phase | Gate | Status | Tag | Date | Notes |
 |---|---|---|---|---|---|
-| 0   | checklist | [~] | phase0-done | | 0.1, 0.2 done |
+| 0   | checklist | [~] | phase0-done | | 0.1-0.3 done |
 | 0.5 | M1 clip   | [ ] | phase05-done | | |
 | 1   | checklist | [ ] | phase1-done | | |
 | 2   | checklist + gate script | [ ] | phase2-done | | |
@@ -25,7 +26,7 @@ Phase 0 tasks (PLAN.md section 7):
 | 0.0 | Java/Gradle/modding basics | [ ] |
 | 0.1 | ADRs 0001-0009, AGENTS.md | [x] |
 | 0.2 | Gradle skeleton + CI (`:core:test`, Java 8 bytecode) | [x] |
-| 0.3 | Mod loads, logs a line, one keybind | [ ] |
+| 0.3 | Mod loads, logs a line, one keybind | [x] |
 | 0.4 | Recorder writes one trace line per tick | [ ] |
 | 0.5 | Scenario harness `/Kairos scenario run <name>` | [ ] |
 | 0.6 | `physics-notes.md` draft with citations | [ ] |

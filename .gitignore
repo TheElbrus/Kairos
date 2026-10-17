@@ -1,0 +1,35 @@
+# --- Build output (any module, any depth) ---
+build/
+.gradle/
+
+# --- Editor (VS Code is the chosen editor) ---
+.vscode/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# --- OS cruft ---
+Thumbs.db
+.DS_Store
+
+# --- Local decompiled vanilla Minecraft source: READING ONLY, NEVER COMMIT ---
+# Decompiled Minecraft source must never be committed (PLAN.md section 7, ADR 0004/0009).
+# `mc-src/` is where you put the decompiled, deobfuscated 1.8.9 tree.
+mc-src/
+
+# --- Local Gradle home, kept OUT of ~/.gradle on purpose (no global writes) ---
+.gradle-home/
+
+# --- Scratch: cloned templates / downloaded tools. Never committed. ---
+.scratch/
+
+# --- Loader workspace output (dev-client run dir must stay inside the repo) ---
+loader-1.8.9/run/
+loader-1.8.9/eclipse/
+loader-1.8.9/.idea/
+
+# --- Local copies of maps we may not have the rights to publish (PLAN.md 1.3, ADR 0009) ---
+# Keep any map you are not licensed to redistribute out of git.
+data/maps/private/

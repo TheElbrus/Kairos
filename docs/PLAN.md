@@ -182,7 +182,7 @@ public interface SegmentSolver {
 
 - `MovementSim.step` is a **pure function** on immutable state (use mutable scratch buffers internally for speed, but the public contract stays pure).
 - **No jump classifier.** Ice, vine, slab, trapdoor and ladder jumps all fall out of block properties. Never write `if (jumpType == NEO)`.
-- Block shapes and properties come from `blocks.json`, dumped from the game's registry and cross-checked against the vanilla data-generator reports. Nothing hand-typed.
+- Block shapes and properties come from `blocks.json`, dumped from the game's registry and cross-checked against the block registry (state counts) plus per-shape spot-check traces. Nothing hand-typed.
 - An architecture test (ArchUnit or Gradle) fails the build if `core` imports `net.minecraft.*`.
 - The sim must be **allocation-free in the hot path**. Search will run millions of ticks.
 
@@ -331,7 +331,7 @@ Milestones in bold are the video-worthy ones. Record screen captures at each.
 
 | ID | Task | Test |
 |---|---|---|
-| 1.0 | `BlockDumper` writes `data/<v>/blocks.json` (collision boxes per state, slipperiness, climbable, etc.), cross-checked against the vanilla data-generator reports | Counts match registry; spot-check slab, stair, trapdoor, fence, ladder, vine, ice |
+| 1.0 | `BlockDumper` writes `data/<v>/blocks.json` (collision boxes per state, slipperiness, climbable, etc.), cross-checked against the block registry (state counts) plus per-shape spot-check traces | Counts match registry; spot-check slab, stair, trapdoor, fence, ladder, vine, ice |
 | 1.1 | Flat movement: walk, sprint, jump, air acceleration, drag, momentum threshold | L0 tests and 10 golden flat traces |
 | 1.2 | Collision: AABB sweep in the game's axis order, step-up, sneak edge clamp, head bumps | Traces: wall hit, head-hitter, step onto slab/stair |
 | 1.3 | Slipperiness and block properties (Tier B, then Tier C) | One trace per block type |
@@ -550,7 +550,7 @@ Cite: the vanilla class/method or MCPK page for any physics rule. If you can't, 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | Harness not deterministic | Medium | Gate 0 determinism test; controlled world settings |
-| Sim mismatches on obscure blocks | High | Fuzz traces, registry dump plus data-generator cross-check, regression test for every miss |
+| Sim mismatches on obscure blocks | High | Fuzz traces, registry cross-check (state counts) plus per-shape spot-check traces, regression test for every miss |
 | Search explodes on long chains | Medium | Segment decomposition, caching, Pareto pruning, backward pass, time budgets |
 | Float/yaw precision makes tight jumps unsolvable | Medium | Mirror game numerics, YawRefiner, exact-sim verification |
 | Executor drift in live play | Medium | Direct yaw setting, closed loop, tick-alignment test |

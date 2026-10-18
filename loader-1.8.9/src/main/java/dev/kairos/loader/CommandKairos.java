@@ -6,8 +6,9 @@ import net.minecraft.util.ChatComponentText; // mc-src/net/minecraft/util/ChatCo
 import net.minecraft.util.EnumChatFormatting; // mc-src/net/minecraft/util/EnumChatFormatting.java
 
 /**
- * {@code /kairos record start <name> | stop | status} (task 0.4) and
- * {@code /kairos scenario run <name> | runmany <name> <n>} (task 0.5).
+ * {@code /kairos record start <name> | stop | status} (task 0.4),
+ * {@code /kairos scenario run <name> | runmany <name> <n>} (task 0.5) and
+ * {@code /kairos dumpblocks} (task 1.0).
  *
  * <p>Client-side only, registered on {@code ClientCommandHandler}. That makes it work in
  * singleplayer without touching the integrated server and without a dependency on
@@ -25,14 +26,18 @@ public final class CommandKairos extends CommandBase {
 
     static final String USAGE =
             "/kairos record start <name>  |  /kairos record stop  |  /kairos record status"
-            + "  |  /kairos scenario run <name>  |  /kairos scenario runmany <name> <n>";
+            + "  |  /kairos scenario run <name>  |  /kairos scenario runmany <name> <n>"
+            + "  |  /kairos dumpblocks";
 
     private final KairosRecorder recorder;
     private final KairosScenarioRunner scenarioRunner;
+    private final BlockDumper blockDumper;
 
-    public CommandKairos(KairosRecorder recorder, KairosScenarioRunner scenarioRunner) {
+    public CommandKairos(KairosRecorder recorder, KairosScenarioRunner scenarioRunner,
+            BlockDumper blockDumper) {
         this.recorder = recorder;
         this.scenarioRunner = scenarioRunner;
+        this.blockDumper = blockDumper;
     }
 
     @Override
@@ -59,6 +64,8 @@ public final class CommandKairos extends CommandBase {
             processRecord(sender, args);
         } else if (args.length >= 2 && "scenario".equals(args[0])) {
             processScenario(sender, args);
+        } else if (args.length >= 1 && "dumpblocks".equals(args[0])) {
+            this.blockDumper.dump(sender);
         } else {
             usage(sender);
         }

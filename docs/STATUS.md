@@ -13,7 +13,7 @@ Environment for task 0.2 (exact versions used; CI reproduces the JDK):
 |---|---|---|---|---|---|
 | 0   | checklist | [x] | phase0-done | 2026-10-17 | 0.1-0.6 done, 0.6 reviewed APPROVE; Phase 0 closing |
 | 0.5 | M1 clip   | [x] | phase05-done | 2026-10-18 | 0.5.1 FlatSim exact on 3 flat goldens (18/20/25 ticks); 0.5.2 solver: 1-4 block gaps solved (jump ticks 8/12/15/19), 6 refused; 0.5.3 M1: the solver's 4-block-gap plan recorded in game replays bit-exact (GapGoldenTest, 26 tests green); clip kept locally, never committed |
-| 1   | checklist | [ ] | phase1-done | | |
+| 1   | checklist | [~] | phase1-done | | 1.0 done: 198 blocks / 7806 states dumped from the live registry, `data/1.8.9/blocks.json` committed (SHA-256 42910374D9B261862E76D16C76AB2E09367B5988B600AC7888ADE5632E00672E), `BlockData` + `BlockDataDumpTest` green (34 tests) |
 | 2   | checklist + gate script | [ ] | phase2-done | | |
 | 3   | ./gradlew gate3 | [ ] | phase3-done | | |
 | 4   | ./gradlew gate4 | [ ] | phase4-done | | |

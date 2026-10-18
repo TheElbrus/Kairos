@@ -64,6 +64,10 @@ JDK 8. Set `KAIROS_PRINT_ONLY=1` to print the command without launching. Details
 **Building and running** (task 0.3) and **recording** (task 0.4): the dev client launches,
 logs the banner, the P keybind echoes a `core` constant, and `/kairos record start|stop|status`
 writes one JSONL trace line per client tick (format frozen in `../docs/adr/0010-trace-format-v1.md`).
+**Block dumping** (task 1.0): `/kairos dumpblocks` writes `run/kairos/blocks.json`
+(schema 1, see the `BlockDumper` class comment) -- every registered block state with its
+collision boxes, slipperiness and climbable flag, deterministic (LF-only; two consecutive
+runs print the same SHA-256). Scenario runs (`/kairos scenario run|runmany`) are task 0.5.
 See `../docs/STATUS.md` and `../docs/JOURNAL.md`.
 
 Recording a trace in the dev client:
@@ -72,6 +76,12 @@ Recording a trace in the dev client:
 /kairos record start test1     # refuses to overwrite; writes run/kairos/traces/test1.jsonl
 ... play ...
 /kairos record stop            # gray "stopped ... after N ticks"; red line means the gap guard fired
+```
+
+Dumping the block registry:
+
+```
+/kairos dumpblocks             # gray "blocks=N states=M -> .../run/kairos/blocks.json SHA-256 <hex>"
 ```
 
 Minecraft APIs (key binding, client tick, chat, commands, movement input) are **cited from

@@ -18,9 +18,10 @@ import org.lwjgl.input.Keyboard;
 
 /**
  * Loader entry point for Kairos: a startup banner and keybind (task 0.3), the trace
- * recorder wired to {@code /kairos record ...} (task 0.4), and the scenario harness
- * wired to {@code /kairos scenario ...} (task 0.5). No physics and no planning live
- * here (AGENTS.md: the loader is thin).
+ * recorder wired to {@code /kairos record ...} (task 0.4), the scenario harness
+ * wired to {@code /kairos scenario ...} (task 0.5), and the block dumper wired to
+ * {@code /kairos dumpblocks} (task 1.0). No physics and no planning live here
+ * (AGENTS.md: the loader is thin).
  */
 // The explicit version is deliberate: FMLModContainer reads the annotation's version
 // first (mc-src/net/minecraftforge/fml/common/FMLModContainer.java:196) and warns when it
@@ -36,6 +37,9 @@ public class KairosMod {
 
     /** Task 0.5: builds the arena, feeds scripted inputs, records the run. */
     private final KairosScenarioRunner scenarioRunner = new KairosScenarioRunner(this.recorder);
+
+    /** Task 1.0: dumps the live block registry to run/kairos/blocks.json. */
+    private final BlockDumper blockDumper = new BlockDumper();
 
     // KeyBinding(String, int, String): KeyBinding.java:68. Raw LWJGL key codes are what
     // GameSettings itself uses (GameSettings.java:139-143), e.g. keyBindJump = 57.
@@ -63,7 +67,8 @@ public class KairosMod {
         // Client-side command, so /kairos works in singleplayer without the server:
         //   ClientCommandHandler.instance  mc-src/net/minecraftforge/client/ClientCommandHandler.java:29
         //   registerCommand(ICommand)     mc-src/net/minecraft/command/CommandHandler.java:119
-        ClientCommandHandler.instance.registerCommand(new CommandKairos(this.recorder, this.scenarioRunner));
+        ClientCommandHandler.instance.registerCommand(
+                new CommandKairos(this.recorder, this.scenarioRunner, this.blockDumper));
     }
 
     // TickEvent.Phase at TickEvent.java:14; ClientTickEvent at TickEvent.java:34.

@@ -131,3 +131,52 @@
   helpers from the frozen `FlatSimGoldenTest` (deliberate, frozen file); and every earlier
   journal test count had silently missed `ArchitectureTest`'s `@ArchTest` (corrected above:
   21/21/25 -- the JUnit XML is the source of truth).
+
+## 2026-10-18 - Task 1.0: BlockDumper -- 1.8.9 registry dumped and committed (198 blocks / 7806 states)
+- Done: Part A: new `loader-1.8.9/.../BlockDumper.java` behind `/kairos dumpblocks`
+  (USAGE + wiring in CommandKairos/KairosMod, README updated). It enumerates
+  `Block.blockRegistry.getKeys()` (Block.java:204) sorted by registry name and per state
+  from `getValidStates()` (BlockState.java:82), and dumps the entity-vs-block collision
+  boxes through the real chain -- Entity.moveEntity (Entity.java:553) ->
+  World.getCollidingBoundingBoxes (World.java:1003) -> Block.addCollisionBoxesToList
+  (Block.java:613) -> Block.getCollisionBoundingBox (Block.java:620) -- with a huge mask,
+  entity=null and a probe world whose only non-air block is the state under test; plus
+  `slipperiness` (Block.java:321) and `climbable` (isLadder, Block.java:1250). Schema 1:
+  keys and states sorted, one state per line, LF only, Double/Float.toString numbers
+  (TraceWriter precedent), a registry-count cross-check that aborts red without writing,
+  temp file + atomic move, success line with the SHA-256. Part B: the user ran the command
+  twice in the dev client (the first try had only seen stale classes -- the client was
+  still up from before the build; relaunching fixed it); both runs agreed
+  (blocks=198 states=7806, 1391703 bytes, 0 CR bytes, SHA-256
+  42910374D9B261862E76D16C76AB2E09367B5988B600AC7888ADE5632E00672E). The dump was copied
+  byte-for-byte to `data/1.8.9/blocks.json` (hashes equal), `.gitattributes` gained
+  `*.json text eol=lf` (git reported no existing *.json as modified, so no
+  re-materialization was needed; the four scenario json files in this worktree still hold
+  CRLF from older checkouts and will materialize as LF on the next checkout), and new pure
+  `core` code: `dev.kairos.core.block.BlockData` (parse/validate/lookup only, no physics)
+  and `BlockDataDumpTest` (LF-only raw-byte guard, header vs contents, pinned 198/7806,
+  spot-checks with mc-src citations: slab BlockSlab.java:46-57/:71-73, stairs
+  BlockStairs.java:89-95/:225-300/:302-380/:385-389, trapdoor BlockTrapDoor.java:70-72/:95/
+  :99, fence BlockFence.java:57-95, ladder BlockLadder.java:33-35/:45/:57, vine
+  BlockVine.java:131-133, ice BlockIce.java:31). `.\gradlew.bat :core:test` green: 34
+  tests, 0 failures (JUnit XML).
+- Surprised: (1) the task text's `getCollisionBoundingBoxFromPool`/`addCollidingBlockToList`
+  do not exist in this MCP stable_22 mapping; the chain above is the real one and
+  `World.getCollisionBoxes` (World.java:1067) is only the null-entity convenience wrapper;
+  (2) ladders DO collide in 1.8.9 -- BlockLadder.java:33-36 sets a 1/8-thick plate on the
+  FACING side -- contrary to the task text; vines really have none
+  (BlockVine.java:131-133); both are climbable (BlockLadder.java:137, BlockVine.java:366);
+  the dump follows the source, is never edited to match the task text, and the test pins
+  the thin ladder plate; (3) some blocks only get their real bounds from
+  `setBlockBoundsBasedOnState` (anvil BlockAnvil.java:76-83) which the live client calls
+  from the render path (BlockModelRenderer.java:34) and ray trace (Block.java:776) but NOT
+  from the collision path, so the dumper primes the bounds before every query -- without
+  priming the anvil would be dumped with its constructor-default box; this priming is a
+  no-op or redundant for every block whose collision override computes its own box;
+  (4) `minecraft:piston_extension` derives its box from a tile entity
+  (BlockPistonMoving.java:125-137); the probe has none, so the dump has the instance
+  default (documented, not special-cased -- that block only exists while a piston moves);
+  (5) fence collision comes from per-connection branches inside
+  `addCollisionBoxesToList` (BlockFence.java:57-95), not from a state-derived bound: with
+  all-air neighbours all 16 property combinations produce the same lone post box
+  (0.375,0,0.375,0.625,1.5,0.625), which is what the dump shows for every state.

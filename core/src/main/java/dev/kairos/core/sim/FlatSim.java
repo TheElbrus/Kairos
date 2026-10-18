@@ -9,13 +9,15 @@ import dev.kairos.core.trace.TraceInput;
  * <p><strong>Phase 1 replaces this class with {@code physics.MovementSim}.</strong> Do not
  * grow it: the world model is a single full-block floor with its top surface at
  * {@code y = 65.0} and nothing else, exactly the worlds of
- * {@code data/scenarios/{walk,sprint,sprintjump}_flat_01.json}. Everything here is the
- * flat-ground subset of {@code docs/physics-notes.md}; every rule cites a note section and
- * the {@code mc-src} file:line that note cites. Unsupported inputs throw
+ * {@code data/scenarios/{walk,sprint,sprintjump}_flat_01.json}. Task 0.5.2 adds only the
+ * {@link GapWorld} variant of that floor: the same world with one straight gap, selected
+ * per call through the three-argument {@link #step(State, TraceInput, GapWorld)}. Everything
+ * here is the flat-ground subset of {@code docs/physics-notes.md}; every rule cites a note
+ * section and the {@code mc-src} file:line that note cites. Unsupported inputs throw
  * {@link UnsupportedOperationException} instead of guessing.
  *
- * <p>{@link #step} is in-place and allocation-free on the happy path (AGENTS.md rule 7).
- * All physics state lives in the caller-owned {@link State}.
+ * <p>Both {@code step} overloads are in-place and allocation-free on the happy path
+ * (AGENTS.md rule 7). All physics state lives in the caller-owned {@link State}.
  */
 public final class FlatSim {
 
@@ -79,9 +81,6 @@ public final class FlatSim {
         public float jumpMovementFactor;
     }
 
-    /** The floor's top surface: block layer y=64..65 of the flat scenarios (notes section 1.7 step 30). */
-    private static final double FLOOR_TOP = 65.0;
-
     /**
      * Floor block slipperiness: "stone" = 0.6f (notes section 2.1, MCPK "Slipperiness" page).
      * The ONLY hand-typed block property here; Phase 1 loads this from {@code blocks.json}
@@ -138,13 +137,27 @@ public final class FlatSim {
     }
 
     /**
+     * Advances one game tick in the flat 0.5.1 world, in place: exactly
+     * {@code step(s, in, GapWorld.NONE)}.
+     */
+    public static void step(State s, TraceInput in) {
+        step(s, in, GapWorld.NONE);
+    }
+
+    /**
      * Advances one game tick, in place. Mirrors the local player's {@code onUpdate} physics
      * for the flat, yaw-0, no-effects, survival case; see {@code docs/physics-notes.md}
      * sections 1.4-1.7 for the full rule list.
      *
+     * @param world the floor geometry the tick's collision resolves against; only the
+     *              {@code moveEntity} floor support depends on it, everything else is
+     *              identical to the 0.5.1 flat world (task 0.5.2)
      * @throws UnsupportedOperationException on any input the flat subset does not specify
      */
-    public static void step(State s, TraceInput in) {
+    public static void step(State s, TraceInput in, GapWorld world) {
+        if (world == null) {
+            throw new NullPointerException("world");
+        }
         if (in.yaw != 0.0f) {
             throw new UnsupportedOperationException(
                     "FlatSim only supports yaw = 0.0f (the MathHelper.lookup tables for sin/cos,"
@@ -224,7 +237,7 @@ public final class FlatSim {
         }
         float strafe = moveStrafe * 0.98f;             // :1527-1530
         float forward = s.moveForward * 0.98f;
-        moveEntityWithHeading(s, strafe, forward);     // :1531
+        moveEntityWithHeading(s, world, strafe, forward);  // :1531
         // :1533-1537 collideWithNearbyEntities runs only when !worldObj.isRemote (server).
 
         // --- EntityPlayer.onLivingUpdate tail (notes section 1.6, EntityPlayer.java:534-538).
@@ -269,7 +282,7 @@ public final class FlatSim {
      * EntityLivingBase.moveEntityWithHeading, normal ground/air path
      * (EntityLivingBase.java:1250-1286; notes sections 1.7 and 2.1-2.6).
      */
-    private static void moveEntityWithHeading(State s, float strafe, float forward) {
+    private static void moveEntityWithHeading(State s, GapWorld world, float strafe, float forward) {
         float f4 = 0.91f;
         if (s.onGround) {
             f4 = SLIPPERINESS * 0.91f;                  // :1255-1257
@@ -282,7 +295,7 @@ public final class FlatSim {
             f4 = SLIPPERINESS * 0.91f;
         }
         // :1265-1282 ladder: not modelled (no ladders in the flat world model).
-        moveEntity(s);                                  // :1279
+        moveEntity(s, world);                           // :1279
         // :1283 gravity, collapsed to the normal local-player expression (notes section 1.7 step 37).
         s.vy -= 0.08;
         s.vy *= (double) 0.98f;                         // :1284, widened float 0.9800000190734863
@@ -312,12 +325,12 @@ public final class FlatSim {
     /**
      * Entity.moveEntity, flat single-floor subset (Entity.java:553-712; notes section 2.8).
      *
-     * <p>World model: one floor block box x -2..3, y 64..65, z -2..13 (the scenarios' block
-     * region). The X/Z box extents persist across ticks (they are only offset by the moves;
-     * {@code resetPositionToBB} just re-derives pos as the midpoint, Entity.java:756-760),
-     * so they live in {@link State}.
+     * <p>World model: one floor block layer y 64..65 consisting of the world's floor
+     * columns and nothing else ({@link GapWorld}). The X/Z box extents persist across ticks
+     * (they are only offset by the moves; {@code resetPositionToBB} just re-derives pos as
+     * the midpoint, Entity.java:756-760), so they live in {@link State}.
      */
-    private static void moveEntity(State s) {
+    private static void moveEntity(State s, GapWorld world) {
         double dx = s.vx;
         double dy = s.vy;
         double dz = s.vz;
@@ -327,18 +340,26 @@ public final class FlatSim {
 
         // Y axis (AxisAlignedBB.calculateYOffset, AxisAlignedBB.java:132-146, with this =
         // floor box and other = player box): moving down while the feet are at/above the
-        // floor face clamps the move to the face. The clamp condition itself implies the
-        // floor is in the swept collision list, so no separate list check is needed.
-        if (dy < 0.0 && s.y >= FLOOR_TOP) {
-            double d = FLOOR_TOP - s.y;
+        // floor face clamps the move to the face; the clamp needs the block on the swept
+        // collision list AND an actual overlap at the pre-move box, which is resolved first
+        // (Entity.java:596-599). The strict z overlap of the early-out (:134) is
+        // GapWorld.overlapsFloor, so NONE (floor everywhere) is exactly the 0.5.1 behavior.
+        // Once the feet are below the face the clamp can never fire again (:142 requires
+        // other.minY >= this.maxY) and no floor in this world exists below 65, so a fall is
+        // terminal.
+        if (dy < 0.0 && s.y >= GapWorld.FLOOR_TOP && world.overlapsFloor(s.minZ, s.maxZ)) {
+            double d = GapWorld.FLOOR_TOP - s.y;
             if (d > dy) {
                 dy = d;
             }
         }
-        // X/Z axes: after the Y offset, the player's feet are at 65.0 or above, so the floor
-        // box fails calculateXOffset's / calculateZOffset's strict face checks
-        // (AxisAlignedBB.java:115, 153) and neither dx nor dz is ever clamped. There are no
-        // other blocks, so colH stays false and step-up (Entity.java:609-673) never triggers.
+        // X/Z axes: while the feet are at 65.0 or above the floor boxes fail
+        // calculateXOffset's / calculateZOffset's Y early-outs (AxisAlignedBB.java:115, 153)
+        // and neither dx nor dz is clamped. A box whose feet sank below 65.0 has already
+        // left the floor and can never land again (see above), so the block side faces it
+        // would then hit are never modelled; no successful plan can observe that state.
+        // Step-up (Entity.java:609-673) cannot trigger either (no clamps, no step-over
+        // blocks in this world).
 
         double minY = s.y + dy;                         // Entity.java:599 box.offset(0, y, 0)
         s.minX += dx;                                   // Entity.java:604 box.offset(x, 0, 0)

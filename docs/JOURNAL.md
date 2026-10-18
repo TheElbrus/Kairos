@@ -55,6 +55,35 @@
   `ScenarioLocator.ROOT_MARKER` never matches at the root and production finds `data/`
   only via the locator's fallback parent walk; the test accepts either marker.
 
+## 2026-10-18 - Task 0.5.2: brute-force solver for one straight gap
+- Done: new `GapWorld` (floor top y=65, one straight +Z gap, `NONE` sentinel; the support
+  test is the strict AxisAlignedBB z early-out `k < maxZ && k+1 > minZ`, AxisAlignedBB.java:134)
+  and `GapSolver` (sprint + single-tick jump, scans jump-start ticks ascending, `Plan`
+  {sprintTicks, jumpTick, tailTicks, landingZ, landTick}); the only public `FlatSim` change
+  is the additive `step(State, TraceInput, GapWorld)` (the 2-arg method delegates to
+  `GapWorld.NONE`, and the 3 flat goldens still pass byte-exact); `GapSolverTest`
+  independently replays every plan and asserts the landing criterion (onGround, y == 65.0
+  exactly, box strictly overlapping a far-floor column) plus determinism, strict-edge
+  geometry and argument validation; `.\gradlew.bat :core:test` green (24 tests). Plans for
+  `GapWorld.of(5, n, 12)`: 1 block -> jump 8, land 19, z=6.03334; 2 -> 12/23, z=7.15880;
+  3 -> 15/26, z=8.00089; 4 -> 19/30, z=9.12340; 6 blocks -> empty.
+- Deviation from the task text (recorded loudly): the solver starts from the real
+  post-settle anchor -- `pos [0.5, 65.0, 0.5]`, `vel [0.0, -0.0784000015258789, 0.0]`,
+  `onGround`, `colV` -- exactly what all three goldens' tick:-1 lines record, NOT the
+  literal all-zero velocity/flags; the -0.0784 is the standing gravity step held by the
+  ground clamp (notes section 2.8 step 11) and a zero start would shift every run.
+  `TAIL_TICKS` is 12, not the "e.g. 10": the arc lands exactly 11 ticks after the jump
+  (sprintjump golden: jump 5, land 16), so the window must observe tick J+11.
+- Surprised: gap 4 only clears via the jump pressed on the tick AFTER the box has left the
+  near floor (start-of-tick box z=5.49424, its minZ 5.194 > 5.0): `onGround` is still true
+  from the previous tick's clamp, the jump only reads that flag (not actual support), and
+  the ascent never queries the floor -- J=18 falls into the gap, J=19 lands at z=9.12340,
+  0.12 blocks past the far edge; gap 3's earliest plan (J=15) lands at z=8.00089, only
+  8.9e-4 past the far edge, so one ulp-level difference would have pushed it to J=16 and
+  changed the plan; and the strict faces mean a box starting exactly at z=5.0 is not
+  supported by the near floor at all (touching faces do not block; also asserted in the
+  test).
+
 ## 2026-10-18 - Task 0.5.1-hygiene: LF-only goldens + the real repo-root marker
 - Done: added `.gitattributes` (`*.jsonl text eol=lf`, the only line); `ScenarioLocator`
   `ROOT_MARKER` is now `settings.gradle` (the actual root build file; the loader's nested

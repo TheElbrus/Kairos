@@ -12,7 +12,7 @@ Environment for task 0.2 (exact versions used; CI reproduces the JDK):
 | Phase | Gate | Status | Tag | Date | Notes |
 |---|---|---|---|---|---|
 | 0   | checklist | [x] | phase0-done | 2026-10-17 | 0.1-0.6 done, 0.6 reviewed APPROVE; Phase 0 closing |
-| 0.5 | M1 clip   | [~] | phase05-done | | 0.5.1 done: FlatSim exact on 3 flat goldens (18/20/25 ticks); 0.5.2 done: 1-4 block gaps solved (jump ticks 8/12/15/19), 6 refused; 0.5.3 next |
+| 0.5 | M1 clip   | [x] | phase05-done | 2026-10-18 | 0.5.1 FlatSim exact on 3 flat goldens (18/20/25 ticks); 0.5.2 solver: 1-4 block gaps solved (jump ticks 8/12/15/19), 6 refused; 0.5.3 M1: the solver's 4-block-gap plan recorded in game replays bit-exact (GapGoldenTest, 26 tests green); clip kept locally, never committed |
 | 1   | checklist | [ ] | phase1-done | | |
 | 2   | checklist + gate script | [ ] | phase2-done | | |
 | 3   | ./gradlew gate3 | [ ] | phase3-done | | |
@@ -37,4 +37,4 @@ Phase 0.5 tasks (PLAN.md "Phase 0.5: Thin vertical slice"):
 |---|---|---|
 | 0.5.1 | Quick-and-dirty sim: flat ground, walk/sprint/jump, air movement, drag, full blocks only | [x] |
 | 0.5.2 | Brute-force solver for one straight gap (constant yaw, try every jump-start tick) | [x] |
-| 0.5.3 | Play the solved inputs in game through the harness | [ ] |
+| 0.5.3 | Play the solved inputs in game through the harness | [x] |

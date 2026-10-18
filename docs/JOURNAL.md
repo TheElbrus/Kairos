@@ -41,8 +41,9 @@
   loader output; SHA256 pairs match) with `Double.compare == 0` on pos/vel/flags and pinned
   line counts 19/21/26; new `data/scenarios/sprint_flat_01.json` (15 ticks sprint-forward,
   10 ticks no keys) recorded live: walk 21 lines, sprint 26 lines, both "no issues";
-  `.\gradlew.bat :core:test` green (20 tests: 3 goldens exact at 18/20/25 ticks + 17
-  existing); anti-vacuity self-check: threshold 0.005 -> 0.003 fails with "first divergence
+  `.\gradlew.bat :core:test` green (21 tests: 3 goldens exact at 18/20/25 ticks + 18
+  existing; corrected 2026-10-18 in task 0.5.3 -- this hand count missed ArchitectureTest's
+  `@ArchTest`); anti-vacuity self-check: threshold 0.005 -> 0.003 fails with "first divergence
   at tick 10, field posY: expected (trace) 66.24918707874468 but sim produced
   66.25220334025373", reverted, green again.
 - Surprised: (1) the collision-box extents PERSIST across ticks -- `resetPositionToBB`
@@ -55,6 +56,27 @@
   `ScenarioLocator.ROOT_MARKER` never matches at the root and production finds `data/`
   only via the locator's fallback parent walk; the test accepts either marker.
 
+## 2026-10-18 - Task 0.5.1-hygiene: LF-only goldens + the real repo-root marker
+- Done: added `.gitattributes` (`*.jsonl text eol=lf`, the only line); `ScenarioLocator`
+  `ROOT_MARKER` is now `settings.gradle` (the actual root build file; the loader's nested
+  `settings.gradle.kts` is deliberately not a marker) and its javadoc says so; loader search
+  from `loader-1.8.9/run` confirmed via a temp probe: resolves
+  `<root>/data/scenarios/walk_flat_01.json` through the marker walk (loader-1.8.9 has no
+  `settings.gradle`, the root has it); `FlatSimGoldenTest` back to a single marker plus an
+  ADR 0010 LF guard reading raw bytes -- demonstrated on a CRLF copy of the walk golden
+  ("golden traces must be LF-only, ADR 0010: ... has a 0x0D byte at offset 294"), then
+  re-materialized; `Remove-Item data\traces\flat\*.jsonl; git checkout -- data/traces/flat/`
+  leaves all three goldens at 0 CR bytes and raw-identical to the recordings
+  (`git hash-object --no-filters` 51c9bc80/1af789b4/a6e6d59d == HEAD blobs == loader files);
+  `.\gradlew.bat :core:test` green (21 tests; corrected count).
+- Surprised: the committed blobs were correct all along -- only the worktree checkout was
+  CRLF (core.autocrlf=true, no .gitattributes): `git hash-object --no-filters` on the
+  worktree gave f01a15df/d5b1720c/f9ec41f5 vs the LF blobs, purely from the 19/21/26 CR
+  bytes, because Part B's SHA256 comparison ran on the fresh LF copies before the branch
+  switch; and the old `settings.gradle.kts` marker never matched any ancestor of this repo,
+  so the locator's marker path had silently been dead code, with the fallback walk doing
+  all the work.
+
 ## 2026-10-18 - Task 0.5.2: brute-force solver for one straight gap
 - Done: new `GapWorld` (floor top y=65, one straight +Z gap, `NONE` sentinel; the support
   test is the strict AxisAlignedBB z early-out `k < maxZ && k+1 > minZ`, AxisAlignedBB.java:134)
@@ -64,7 +86,8 @@
   `GapWorld.NONE`, and the 3 flat goldens still pass byte-exact); `GapSolverTest`
   independently replays every plan and asserts the landing criterion (onGround, y == 65.0
   exactly, box strictly overlapping a far-floor column) plus determinism, strict-edge
-  geometry and argument validation; `.\gradlew.bat :core:test` green (24 tests). Plans for
+  geometry and argument validation; `.\gradlew.bat :core:test` green (25 tests; corrected
+  count -- the hand counted entries missed ArchitectureTest's `@ArchTest`). Plans for
   `GapWorld.of(5, n, 12)`: 1 block -> jump 8, land 19, z=6.03334; 2 -> 12/23, z=7.15880;
   3 -> 15/26, z=8.00089; 4 -> 19/30, z=9.12340; 6 blocks -> empty.
 - Deviation from the task text (recorded loudly): the solver starts from the real
@@ -84,23 +107,27 @@
   supported by the near floor at all (touching faces do not block; also asserted in the
   test).
 
-## 2026-10-18 - Task 0.5.1-hygiene: LF-only goldens + the real repo-root marker
-- Done: added `.gitattributes` (`*.jsonl text eol=lf`, the only line); `ScenarioLocator`
-  `ROOT_MARKER` is now `settings.gradle` (the actual root build file; the loader's nested
-  `settings.gradle.kts` is deliberately not a marker) and its javadoc says so; loader search
-  from `loader-1.8.9/run` confirmed via a temp probe: resolves
-  `<root>/data/scenarios/walk_flat_01.json` through the marker walk (loader-1.8.9 has no
-  `settings.gradle`, the root has it); `FlatSimGoldenTest` back to a single marker plus an
-  ADR 0010 LF guard reading raw bytes -- demonstrated on a CRLF copy of the walk golden
-  ("golden traces must be LF-only, ADR 0010: ... has a 0x0D byte at offset 294"), then
-  re-materialized; `Remove-Item data\traces\flat\*.jsonl; git checkout -- data/traces/flat/`
-  leaves all three goldens at 0 CR bytes and raw-identical to the recordings
-  (`git hash-object --no-filters` 51c9bc80/1af789b4/a6e6d59d == HEAD blobs == loader files);
-  `.\gradlew.bat :core:test` green (20 tests).
-- Surprised: the committed blobs were correct all along -- only the worktree checkout was
-  CRLF (core.autocrlf=true, no .gitattributes): `git hash-object --no-filters` on the
-  worktree gave f01a15df/d5b1720c/f9ec41f5 vs the LF blobs, purely from the 19/21/26 CR
-  bytes, because Part B's SHA256 comparison ran on the fresh LF copies before the branch
-  switch; and the old `settings.gradle.kts` marker never matched any ancestor of this repo,
-  so the locator's marker path had silently been dead code, with the fallback walk doing
-  all the work.
+## 2026-10-18 - Task 0.5.3: M1 -- solve, play, record, replay (4-block gap cleared in game)
+- Done: new `data/scenarios/sprintjump_gap4_01.json` (near floor y=64 z=-2..4, gap z=5..8,
+  far floor y=64 z=9..20, air corridor y=65..70; inputs = the 0.5.2 plan: 19 sprint, 1 jump,
+  11 sprint); the user started the M1 screen recording, ran
+  `/kairos scenario run sprintjump_gap4_01` in the dev client, and it worked fully in-game
+  ("1/1 run done in 31 ticks"); the recorded
+  `loader-1.8.9/run/kairos/traces/sprintjump_gap4_01.jsonl` (32 lines, 0 CR bytes, 10703
+  bytes, SHA256 FC1F27BCAEAE5C2D46D5A57036D6CF496BE3F63FB8DAE1377BC1BB240ABAB8A3) was copied
+  byte-for-byte to `data/traces/gap/` (hashes match; recorder paths asserted before the
+  run); new `GapGoldenTest` replays it against `FlatSim.step(..., GapWorld.of(5, 4, 12))`
+  with `Double.compare == 0` on every field, pins the tick:-1 anchor to the solver's start
+  state, and cross-checks M1: `GapSolver.solve(WORLD, 25)` must return the plan the scenario
+  encodes (sprintTicks 19, jumpTick 19, tailTicks 11, landTick 30) and the final line must
+  have posY == 65.0 and posZ == plan.landingZ exactly (9.123401902694745);
+  `.\gradlew.bat :core:test` green (26 tests, 0 failures -- confirmed against the JUnit
+  XML). The clip itself stays with the user, uncommitted.
+- Surprised: the real game reproduced the sim bit-for-bit, including the jump pressed on
+  tick 19, the tick AFTER the box left the near floor (`onGround` persisting one tick held
+  in the live client) and the landing at z=9.123401902694745 == `plan.landingZ` exactly; the
+  corridor's z<=4 pre-jump segment is the same treadmill as the sprint golden, so those
+  ticks are bit-identical to it; `GapGoldenTest` duplicates the private trace-parsing
+  helpers from the frozen `FlatSimGoldenTest` (deliberate, frozen file); and every earlier
+  journal test count had silently missed `ArchitectureTest`'s `@ArchTest` (corrected above:
+  21/21/25 -- the JUnit XML is the source of truth).

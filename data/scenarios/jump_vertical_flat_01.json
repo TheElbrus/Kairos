@@ -1,0 +1,12 @@
+{
+  "name": "jump_vertical_flat_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 30], "id": "stone"}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 1, "w": 0, "sprint": 0, "jump": 1},
+    {"ticks": 20, "w": 0, "sprint": 0, "jump": 0}
+  ]
+}

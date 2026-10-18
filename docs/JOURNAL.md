@@ -180,3 +180,30 @@
   `addCollisionBoxesToList` (BlockFence.java:57-95), not from a state-derived bound: with
   all-air neighbours all 16 property combinations produce the same lone post box
   (0.375,0,0.375,0.625,1.5,0.625), which is what the dump shows for every state.
+
+## 2026-10-18 - Task 1.1: MovementSim -- flat movement rewrite, 13 flat goldens bit-exact
+- Done: new pure `dev.kairos.core.sim.MovementSim` (walk/sprint/jump/air acceleration, drag,
+  the 0.005 threshold, the sprint state machine; every rule cited to notes+mc-src; throws for
+  yaw != 0, strafe and sneak) taking over `FlatSim`'s role for the flat subset (FlatSim /
+  GapWorld / GapSolver untouched and still green); `MovementSimL0Test` (7 tests: first jump
+  tick, sprint-jump worked-example tick 5, apex 1.24918707874468 + 12-tick jump duration,
+  terminal fall -3.9200038147008747, walk/sprint terminal advances
+  0.21585903893404823/0.28061673748548444, momentum threshold 0.004/0.005, scope guards);
+  `MovementSimFlatGoldenTest` replays every `data/traces/flat/*.jsonl` bit-exact (pinned
+  table 3 -> 13; line counts 21/26/19 + 46/56/46/56/22/37/37/37/31/51); 10 new
+  `data/scenarios/*_flat_01.json` recorded live by the user in one sitting and copied
+  byte-for-byte to `data/traces/flat/` (0 CR bytes; the 3 old goldens unchanged);
+  `.\gradlew.bat :core:test` green: 42 tests, 0 failures (JUnit XML), all 13 golden replays
+  exact on the first run.
+- Surprised: (1) the air-wap scenario passed first try -- the sprint re-engage mid-air is
+  modelled without an onGround check (EntityPlayerSP.java:613-614), and the re-pressed tick
+  still uses the PREVIOUS tail's walking jumpMovementFactor (0.02), the sprint factor (0.026)
+  only from the tick after, and the live client follows the code exactly; (2) the wiki "max
+  walking/sprinting speed" 0.215/0.280 is the per-tick ADVANCE (pre-drag velocity), while the
+  velocity the recurrence locks to is 0.11785904894762855/0.15321675646360336 -- both are now
+  pinned (advance as a 20-tick average, the locked value bit-exact) so the two readings can
+  never be confused later; (3) a scratch C#/PowerShell re-derivation of the constants was
+  wrong at the 8th digit because both evaluators constant-fold `0.6f * 0.91f` in double
+  (0.54600003743171754 instead of the float-rounded 0.54600006341934204) -- only a real JVM
+  run produced values that agree with the recorded traces, so the pins were taken from that
+  run and the goldens stay the arbiter.

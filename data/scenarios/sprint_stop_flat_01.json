@@ -1,0 +1,12 @@
+{
+  "name": "sprint_stop_flat_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 30], "id": "stone"}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 30, "w": 1, "sprint": 1, "jump": 0},
+    {"ticks": 25, "w": 0, "sprint": 0, "jump": 0}
+  ]
+}

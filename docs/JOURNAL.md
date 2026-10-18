@@ -32,3 +32,25 @@
   one citation-range nit fixed (paused frames now Minecraft.java:1735-1740, 1749-1753).
 - Surprised: air friction on the landing tick and the tick-10 apex truncation reproduce
   to the last digit in an unrelated runtime; no physics rule needed correction.
+
+## 2026-10-18 - Task 0.5.1: FlatSim thin slice, 3 flat goldens exact
+- Done: throwaway `dev.kairos.core.sim.FlatSim` (yaw=0, one floor block at y=64..65, flat
+  subset of docs/physics-notes.md, every rule cited, `UnsupportedOperationException` for
+  yaw != 0.0f or sneak) + `FlatSimGoldenTest` replaying the committed goldens
+  `data/traces/flat/{sprintjump,walk,sprint}_flat_01.jsonl` (byte-identical copies of the
+  loader output; SHA256 pairs match) with `Double.compare == 0` on pos/vel/flags and pinned
+  line counts 19/21/26; new `data/scenarios/sprint_flat_01.json` (15 ticks sprint-forward,
+  10 ticks no keys) recorded live: walk 21 lines, sprint 26 lines, both "no issues";
+  `.\gradlew.bat :core:test` green (20 tests: 3 goldens exact at 18/20/25 ticks + 17
+  existing); anti-vacuity self-check: threshold 0.005 -> 0.003 fails with "first divergence
+  at tick 10, field posY: expected (trace) 66.24918707874468 but sim produced
+  66.25220334025373", reverted, green again.
+- Surprised: (1) the collision-box extents PERSIST across ticks -- `resetPositionToBB`
+  only re-derives pos from the box (Entity.java:756-760) and `setPosition`, which rebuilds
+  the box from pos, is not part of the normal physics tick; recomputing pos +/-
+  (double)0.3f each tick diverges at tick 13 with a 1-ulp `posZ` (sim 4.3243237719333125
+  vs trace 4.324323771933313), so State carries minX/maxX/minZ/maxZ; (2) after that one
+  fix, the walk and sprint traces matched with zero further sim changes; (3) the repo root
+  has `settings.gradle`, not `settings.gradle.kts` (that is the loader's nested build), so
+  `ScenarioLocator.ROOT_MARKER` never matches at the root and production finds `data/`
+  only via the locator's fallback parent walk; the test accepts either marker.

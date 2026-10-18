@@ -55,7 +55,7 @@ class ScenarioLocatorTest {
 
     @Test
     void legacyFallbackWorksWithoutAMarker(@TempDir Path root) throws IOException {
-        // No settings.gradle.kts anywhere under the temp root.
+        // No repo root marker anywhere under the temp root.
         Path expected = writeScenario(root.resolve("data/scenarios"), "body");
 
         Path start = root.resolve("run");

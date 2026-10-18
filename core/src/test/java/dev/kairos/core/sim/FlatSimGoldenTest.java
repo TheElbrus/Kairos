@@ -53,6 +53,7 @@ class FlatSimGoldenTest {
 
     private static void replay(String name, int expectedLines) throws IOException {
         File file = golden(name);
+        assertLfOnly(file);
         List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
         assertEquals(expectedLines, lines.size(), "pinned line count of " + file);
 
@@ -82,6 +83,20 @@ class FlatSimGoldenTest {
         }
     }
 
+    /**
+     * Regression test for the autocrlf CRLF issue (task 0.5.1-hygiene): the goldens must be
+     * LF-only on disk (ADR 0010), and {@code readAllLines} hides CRLF, so check raw bytes.
+     */
+    private static void assertLfOnly(File file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        for (int i = 0; i < bytes.length; i++) {
+            if (bytes[i] == 0x0D) {
+                fail("golden traces must be LF-only, ADR 0010: " + file
+                        + " has a 0x0D byte at offset " + i);
+            }
+        }
+    }
+
     private static void checkDouble(int tick, String field, double expected, double actual) {
         if (Double.compare(expected, actual) != 0) {
             fail("first divergence at tick " + tick + ", field " + field
@@ -97,29 +112,18 @@ class FlatSimGoldenTest {
     }
 
     /**
-     * Repo-root markers, in check order: {@link ScenarioLocator}'s constant plus the
-     * actual root build file. The locator's {@code ROOT_MARKER} ({@code settings.gradle.kts})
-     * is the loader's own build file, not the root's (the root uses {@code settings.gradle});
-     * in production the loader reaches {@code data/} via the locator's fallback parent walk.
-     * The test accepts either so it works regardless of which marker is hit first.
+     * Repo root: the first ancestor of the test working dir with the repo marker
+     * ({@link ScenarioLocator#ROOT_MARKER}, the root build file {@code settings.gradle}).
      */
-    private static final String[] ROOT_MARKERS = {
-            ScenarioLocator.ROOT_MARKER,
-            "settings.gradle",
-    };
-
-    /** Repo root: the first ancestor of the test working dir that carries a root marker. */
     private static File golden(String name) {
         File dir = new File(System.getProperty("user.dir")).getAbsoluteFile();
         for (File f = dir; f != null; f = f.getParentFile()) {
-            for (String marker : ROOT_MARKERS) {
-                if (new File(f, marker).isFile()) {
-                    return new File(f, "data/traces/flat/" + name + ".jsonl");
-                }
+            if (new File(f, ScenarioLocator.ROOT_MARKER).isFile()) {
+                return new File(f, "data/traces/flat/" + name + ".jsonl");
             }
         }
         throw new IllegalStateException(
-                "no repo root marker " + java.util.Arrays.toString(ROOT_MARKERS) + " found above " + dir);
+                "no " + ScenarioLocator.ROOT_MARKER + " found above " + dir);
     }
 
     private static TraceInput input(Map<String, Object> line) {

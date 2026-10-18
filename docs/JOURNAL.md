@@ -54,3 +54,24 @@
   has `settings.gradle`, not `settings.gradle.kts` (that is the loader's nested build), so
   `ScenarioLocator.ROOT_MARKER` never matches at the root and production finds `data/`
   only via the locator's fallback parent walk; the test accepts either marker.
+
+## 2026-10-18 - Task 0.5.1-hygiene: LF-only goldens + the real repo-root marker
+- Done: added `.gitattributes` (`*.jsonl text eol=lf`, the only line); `ScenarioLocator`
+  `ROOT_MARKER` is now `settings.gradle` (the actual root build file; the loader's nested
+  `settings.gradle.kts` is deliberately not a marker) and its javadoc says so; loader search
+  from `loader-1.8.9/run` confirmed via a temp probe: resolves
+  `<root>/data/scenarios/walk_flat_01.json` through the marker walk (loader-1.8.9 has no
+  `settings.gradle`, the root has it); `FlatSimGoldenTest` back to a single marker plus an
+  ADR 0010 LF guard reading raw bytes -- demonstrated on a CRLF copy of the walk golden
+  ("golden traces must be LF-only, ADR 0010: ... has a 0x0D byte at offset 294"), then
+  re-materialized; `Remove-Item data\traces\flat\*.jsonl; git checkout -- data/traces/flat/`
+  leaves all three goldens at 0 CR bytes and raw-identical to the recordings
+  (`git hash-object --no-filters` 51c9bc80/1af789b4/a6e6d59d == HEAD blobs == loader files);
+  `.\gradlew.bat :core:test` green (20 tests).
+- Surprised: the committed blobs were correct all along -- only the worktree checkout was
+  CRLF (core.autocrlf=true, no .gitattributes): `git hash-object --no-filters` on the
+  worktree gave f01a15df/d5b1720c/f9ec41f5 vs the LF blobs, purely from the 19/21/26 CR
+  bytes, because Part B's SHA256 comparison ran on the fresh LF copies before the branch
+  switch; and the old `settings.gradle.kts` marker never matched any ancestor of this repo,
+  so the locator's marker path had silently been dead code, with the fallback walk doing
+  all the work.

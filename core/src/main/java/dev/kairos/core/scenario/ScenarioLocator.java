@@ -15,7 +15,7 @@ import java.util.List;
  *       {@code -Dkairos.scenariosDir=<dir>} system property (must contain
  *       {@code <name>.json});</li>
  *   <li>walk up from the start directory to the first directory containing the repo-root
- *       marker {@link #ROOT_MARKER} ({@code settings.gradle.kts}) and use
+ *       marker {@link #ROOT_MARKER} ({@code settings.gradle}) and use
  *       {@code <root>/data/scenarios/<name>.json};</li>
  *   <li>the legacy fallback: walk up to {@link #MAX_UP} parents and test
  *       {@code data/scenarios/<name>.json} at each.</li>
@@ -29,8 +29,12 @@ public final class ScenarioLocator {
     /** System property that overrides the scenarios directory (checked first). */
     public static final String OVERRIDE_PROPERTY = "kairos.scenariosDir";
 
-    /** The repo-root marker; the first ancestor that has it is treated as the repo root. */
-    public static final String ROOT_MARKER = "settings.gradle.kts";
+    /**
+     * The repo-root marker; the first ancestor that has it is treated as the repo root.
+     * It is the root build file; the loader has its own nested {@code settings.gradle.kts},
+     * which is deliberately NOT a marker.
+     */
+    public static final String ROOT_MARKER = "settings.gradle";
 
     /** How many parent directories the legacy fallback climbs. */
     public static final int MAX_UP = 6;

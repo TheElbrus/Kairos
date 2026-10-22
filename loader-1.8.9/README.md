@@ -70,8 +70,8 @@ state with its collision boxes, slipperiness and climbable flag, the generated c
 facts (`connector` kind/group/cube/pane) and the per-state `solid` mask of
 `Block.isSideSolid`, deterministic (LF-only; two consecutive runs print the same SHA-256).
 Scenario runs (`/kairos scenario run|runmany`) are task 0.5. The fuzz corpus and batch
-harness are task 1.7.1 (`/kairos scenario fuzz`); recording the full 1000-scenario fuzz
-set is task 1.7.2.
+harness are task 1.7.1 (`/kairos scenario fuzz`); the full 1000-scenario fuzz set was
+recorded in task 1.7.2 and is committed under `../data/traces/fuzz/`.
 See `../docs/STATUS.md` and `../docs/JOURNAL.md`.
 
 Recording a trace in the dev client:
@@ -99,8 +99,9 @@ scenarios, 100 ticks each):
 
 `fuzz` parses and resolves every requested scenario before touching the world, refuses to
 overwrite an existing `<scenario>.jsonl` unless `resume` is given, and aborts with the
-scenario name/index on the first failure (already recorded traces stay on disk). This is a
-development tool: the corpus and harness are committed, the fuzz traces are not.
+scenario name/index on the first failure (already recorded traces stay on disk). The
+corpus, harness, and all 1000 recorded fuzz traces (`../data/traces/fuzz/`) are committed;
+`FuzzGoldenTest` replays every trace bit-exact.
 
 Dumping the block registry:
 

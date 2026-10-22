@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.io.IOException;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -222,15 +222,16 @@ class MovementSimL0Test {
     }
 
     @Test
-    void throwsOnOutOfScopeInputs() {
+    void acceptsYawAndStrafe() {
+        // Task 1.6 brought non-axis yaw and strafe into scope (MathHelper table).
         MovementSim.State s = flatRest();
-        assertThrows(UnsupportedOperationException.class,
+        assertDoesNotThrow(
                 () -> MovementSim.step(s, new TraceInput(0, 0, 0, 0, 0, 0, 0, 90.0f, 0.0f, 0.0f, 0.0f),
                         FLAT_WORLD),
-                "non-zero yaw is out of scope (task 1.6)");
-        assertThrows(UnsupportedOperationException.class,
+                "non-zero yaw is in scope");
+        assertDoesNotThrow(
                 () -> MovementSim.step(s, new TraceInput(0, 0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.5f),
                         FLAT_WORLD),
-                "strafe is out of scope (tasks 1.2/1.6)");
+                "strafe is in scope");
     }
 }

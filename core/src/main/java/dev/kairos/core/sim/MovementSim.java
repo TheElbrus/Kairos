@@ -17,15 +17,16 @@ import dev.kairos.core.trace.TraceInput;
  * acceleration). Every rule below cites the note section and the {@code mc-src}
  * file:line that note cites.
  *
- * <p><b>Scope.</b> Axis-aligned W-only movement (yaw 0) with jump, sneak and sprint, on
+ * <p><b>Scope.</b> W/S/A/D movement at any yaw with jump, sneak and sprint, on
  * the scenario's collision world from {@code data/1.8.9/blocks.json} (task 1.2;
  * {@link CollisionWorld} owns the queries, this class owns the rules), with the
  * per-block {@code Block.slipperiness} under the feet read from the same dump (task 1.3;
- * ice/packed ice 0.98f, stone/air 0.6f) and the ladder/vine clamp + climb impulse
- * (task 1.4; EntityLivingBase.java:1265-1282). Still
- * {@link UnsupportedOperationException}: strafe and non-zero yaw (tasks 1.2/1.6),
- * water/lava/flying (after Gate 2), pushOutOfBlocks and the item-use axis scaling (not
- * recorded, see notes section 4). Tier C blocks (slime/soul sand/cobweb) are not
+ * ice/packed ice 0.98f, stone/air 0.6f), the ladder/vine clamp + climb impulse
+ * (task 1.4; EntityLivingBase.java:1265-1282) and the game's sine/cosine lookup table
+ * for non-axis yaw and strafe (task 1.6; Entity.java:976-988,
+ * EntityLivingBase.java:1222-1234). Still out of scope: water/lava/flying (after
+ * Gate 2), pushOutOfBlocks and the item-use axis scaling (not recorded, see notes
+ * section 4). Tier C blocks (slime/soul sand/cobweb) are not
  * modelled: slime's 0.8 is read from the dump, but its bounce and entity effects are
  * out of scope until after Gate 2. No jump classifier anywhere: step-up, head bumps,
  * the sneaking edge clamp and fence/wall/pane shapes fall out of the game's own sweep
@@ -168,21 +169,10 @@ public final class MovementSim {
     /**
      * Advances one game tick, in place, against the scenario's collision world.
      *
-     * @throws UnsupportedOperationException for any input outside the current scope (see
-     *         the class comment); the message names the task that will bring it
+     * <p>Any yaw and any movement axes are accepted now (task 1.6); the remaining
+     * out-of-scope behaviour is listed in the class comment.
      */
     public static void step(State s, TraceInput in, CollisionWorld world) {
-        if (in.yaw != 0.0f) {
-            throw new UnsupportedOperationException(
-                    "task 1.1 supports yaw = 0.0f only; non-axis yaw needs the real"
-                            + " MathHelper sine/cosine tables (notes section 2.3, task 1.6), got yaw = "
-                            + in.yaw);
-        }
-        if (in.ms != 0.0f) {
-            throw new UnsupportedOperationException(
-                    "task 1.1 supports W-only movement (no S/A/D strafe), got ms = " + in.ms);
-        }
-
         // --- EntityPlayerSP.onLivingUpdate: input -> sprint state
         //     (notes section 1.4, EntityPlayerSP.java:551-618).
         updateSprintState(s, in);
@@ -200,15 +190,15 @@ public final class MovementSim {
         // updateEntityActionState() copies the input into the entity (notes 1.5 step 24).
         if (in.jump != 0) {                              // :1513-1525; no water/lava in scope
             if (s.onGround && s.jumpTicks == 0) {
-                jump(s);
+                jump(s, in.yaw);
                 s.jumpTicks = 10;                        // :1519-1521
             }
         } else {
             s.jumpTicks = 0;                             // :1523-1524
         }
-        float strafe = 0.0f;                             // in.ms == 0 enforced above
-        float forward = s.moveForward * 0.98f;           // :1527-1530
-        moveEntityWithHeading(s, strafe, forward, in.sneak != 0, world);  // :1531
+        float strafe = in.ms * 0.98f;                    // :1528, left positive
+        float forward = s.moveForward * 0.98f;           // :1529
+        moveEntityWithHeading(s, strafe, forward, in.sneak != 0, world, in.yaw);  // :1531
 
         // --- EntityPlayer.onLivingUpdate tail
         //     (notes section 1.6, EntityPlayer.java:534-538): next tick's air acceleration.
@@ -289,11 +279,15 @@ public final class MovementSim {
     }
 
     /** EntityLivingBase.jump (EntityLivingBase.java:1222-1234); no Potion.jump effects. */
-    private static void jump(State s) {
+    private static void jump(State s, float yaw) {
         s.vy = (double) 0.42f;                           // getJumpUpwardsMotion :1215-1217, :1223
         if (s.sprinting) {
-            // Sprint boost :1227-1231 along the facing heading (-sin, +cos); yaw 0 -> +Z only.
-            s.vz += (double) (1.0f * 0.2f);
+            // Sprint boost :1227-1231 along the facing heading (-sin, +cos). The angle
+            // uses the parenthesized radians expression, which rounds differently from
+            // moveFlying's shape (Entity.java:983-984): do not share a helper between them.
+            float f = yaw * ((float) Math.PI / 180);
+            s.vx -= (double) (MathHelper.sin(f) * 0.2f);
+            s.vz += (double) (MathHelper.cos(f) * 0.2f);
         }
     }
 
@@ -317,7 +311,7 @@ public final class MovementSim {
      * water/lava branches (:1287-1323) are not modelled.
      */
     private static void moveEntityWithHeading(State s, float strafe, float forward,
-            boolean sneaking, CollisionWorld world) {
+            boolean sneaking, CollisionWorld world, float yaw) {
         // :1254-1257: on the ground, f4 = block.slipperiness * 0.91f for the block under
         // the feet (floor(posX), floor(box.minY) - 1, floor(posZ)); air otherwise.
         float f4 = 0.91f;
@@ -326,7 +320,7 @@ public final class MovementSim {
         }
         float f = 0.16277136f / (f4 * f4 * f4);          // :1258
         float f5 = s.onGround ? aimoveSpeed(s) * f : s.jumpMovementFactor;  // :1259
-        moveFlying(s, strafe, forward, f5);              // :1260, notes section 2.3
+        moveFlying(s, strafe, forward, f5, yaw);         // :1260, notes section 2.3
         // :1261-1264 recompute f4 with the SAME pre-move inputs (moveEntity has not run
         // yet), so the second lookup always agrees with the first.
         f4 = 0.91f;
@@ -377,10 +371,12 @@ public final class MovementSim {
     }
 
     /**
-     * Entity.moveFlying (Entity.java:976-988; notes section 2.3). Yaw is 0.0f (enforced),
-     * so MathHelper's table (MathHelper.java:29-38, 496-498) gives sin = 0.0f, cos = 1.0f.
+     * Entity.moveFlying (Entity.java:976-988; notes section 2.3). The angle keeps the
+     * game's exact multiply-then-divide shape, which rounds differently from the sprint
+     * jump boost's parenthesized expression (EntityLivingBase.java:1229).
      */
-    private static void moveFlying(State s, float strafe, float forward, float friction) {
+    private static void moveFlying(State s, float strafe, float forward, float friction,
+            float yaw) {
         float len2 = strafe * strafe + forward * forward;
         if (len2 >= 1.0E-4f) {
             float len = (float) Math.sqrt(len2);         // MathHelper.sqrt_float, MathHelper.java:40-42
@@ -390,8 +386,10 @@ public final class MovementSim {
             float mul = friction / len;
             strafe *= mul;
             forward *= mul;
-            s.vx += (double) (strafe * 1.0f - forward * 0.0f);
-            s.vz += (double) (forward * 1.0f + strafe * 0.0f);
+            float sin = MathHelper.sin(yaw * (float) Math.PI / 180.0f);
+            float cos = MathHelper.cos(yaw * (float) Math.PI / 180.0f);
+            s.vx += (double) (strafe * cos - forward * sin);
+            s.vz += (double) (forward * cos + strafe * sin);
         }
     }
 

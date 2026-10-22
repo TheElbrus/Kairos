@@ -1,0 +1,11 @@
+{
+  "name": "yaw_strafe_161_9_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 161.9, "pitch": 0.0},
+  "blocks": [
+    {"from": [-16, 64, -16], "to": [16, 64, 16], "id": "stone", "props": {"variant": "stone"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 40, "a": 1}
+  ]
+}

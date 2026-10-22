@@ -1,0 +1,14 @@
+{
+  "name": "stairs_step_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 18], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [-2, 65, 4], "to": [2, 65, 4], "id": "oak_stairs", "props": {"facing": "south", "half": "bottom", "shape": "straight"}},
+    {"from": [-2, 66, 5], "to": [2, 66, 5], "id": "oak_stairs", "props": {"facing": "south", "half": "bottom", "shape": "straight"}},
+    {"from": [-2, 66, 6], "to": [2, 66, 10], "id": "stone", "props": {"variant": "stone"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 60, "w": 1, "sprint": 0, "jump": 0}
+  ]
+}

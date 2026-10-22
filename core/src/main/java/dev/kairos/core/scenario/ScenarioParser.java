@@ -1,6 +1,7 @@
 package dev.kairos.core.scenario;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -62,18 +63,46 @@ public final class ScenarioParser {
         if (!(value instanceof List)) {
             throw new IllegalArgumentException("blocks must be an array");
         }
-        for (Object element : (List<?>) value) {
+        List<?> list = (List<?>) value;
+        for (int i = 0; i < list.size(); i++) {
+            Object element = list.get(i);
             if (!(element instanceof Map)) {
                 throw new IllegalArgumentException("each block entry must be an object");
             }
             @SuppressWarnings("unchecked")
             Map<String, Object> block = (Map<String, Object>) element;
+            String where = "blocks[" + i + "]";
             int[] from = requireIntTriple(block, "from");
             int[] to = requireIntTriple(block, "to");
             String id = requireString(block, "id");
-            blocks.add(new ScenarioBlock(from, to, id));
+            blocks.add(new ScenarioBlock(from, to, id, parseProps(block.get("props"), where)));
         }
         return blocks;
+    }
+
+    /**
+     * The optional {@code "props"} object of a block entry: property name -> value name,
+     * validated as non-empty strings. Absent and {@code {}} both mean the default state.
+     */
+    private static Map<String, String> parseProps(Object value, String where) {
+        Map<String, String> props = new LinkedHashMap<String, String>();
+        if (value == null) {
+            return props;
+        }
+        if (!(value instanceof Map)) {
+            throw new IllegalArgumentException(where + ".props must be an object");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = (Map<String, Object>) value;
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            Object propValue = entry.getValue();
+            if (!(propValue instanceof String) || ((String) propValue).isEmpty()) {
+                throw new IllegalArgumentException(where + ".props." + entry.getKey()
+                        + " must be a non-empty string");
+            }
+            props.put(entry.getKey(), (String) propValue);
+        }
+        return props;
     }
 
     private static List<ScenarioInput> parseInputs(Object value) {

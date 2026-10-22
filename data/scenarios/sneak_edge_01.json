@@ -1,0 +1,11 @@
+{
+  "name": "sneak_edge_01",
+  "start": {"pos": [0.5, 65.0, 6.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -4], "to": [2, 64, 8], "id": "stone", "props": {"variant": "stone"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 70, "w": 1, "sprint": 0, "jump": 0, "sneak": 1}
+  ]
+}

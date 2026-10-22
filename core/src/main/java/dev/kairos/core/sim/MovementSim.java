@@ -3,8 +3,9 @@ package dev.kairos.core.sim;
 import dev.kairos.core.trace.TraceInput;
 
 /**
- * Phase 1 simulator (task 1.1): the local player's flat-ground movement tick - walk,
- * sprint, jump, air acceleration, drag and the 0.005 momentum threshold.
+ * Phase 1 simulator (tasks 1.1-1.2): the local player's movement tick - walk, sprint,
+ * jump, air acceleration, drag, the 0.005 momentum threshold, and the real block
+ * collision sweep against the shapes dumped from the game registry.
  *
  * <p>This is the rewrite the PLAN.md 0.5 rule asks for ({@code FlatSim} and
  * {@code GapWorld} stay untouched and frozen; the golden traces are replayed through
@@ -16,37 +17,42 @@ import dev.kairos.core.trace.TraceInput;
  * acceleration). Every rule below cites the note section and the {@code mc-src}
  * file:line that note cites.
  *
- * <p><b>Scope of task 1.1.</b> Only the flat, yaw-0 world: one stone floor layer
- * ({@code y 64..65}) that extends everywhere, with W/sprint/jump inputs. Everything else
- * throws {@link UnsupportedOperationException} instead of guessing: strafe and non-zero
- * yaw (tasks 1.2/1.6), sneaking (1.2), real block shapes and slipperiness from
- * {@code blocks.json} (1.2/1.3), ladders/water/lava/flying (1.4), the full sprint-state
- * traces (1.5). The floor top ({@value #FLOOR_TOP}) and stone slipperiness
- * ({@value #SLIPPERINESS}f) are the only hand-typed block properties, exactly like
- * {@code FlatSim}; task 1.3 replaces them with the dumped block data.
+ * <p><b>Scope.</b> Axis-aligned W-only movement (yaw 0) with jump, sneak and sprint, on
+ * the scenario's collision world from {@code data/1.8.9/blocks.json} (task 1.2;
+ * {@link CollisionWorld} owns the queries, this class owns the rules). Still
+ * {@link UnsupportedOperationException}: strafe and non-zero yaw (tasks 1.2/1.6),
+ * slipperiness read from the block under the feet (1.3 - the constant
+ * {@value #SLIPPERINESS}f stone value stays hand-typed until then), ladder/water/lava/
+ * flying (1.4), pushOutOfBlocks and the item-use axis scaling (not recorded, see notes
+ * section 4). No jump classifier anywhere: step-up, head bumps and the sneaking edge
+ * clamp fall out of the game's own sweep (AGENTS.md).
  *
- * <p><b>Purity and allocation.</b> {@link #step(State, TraceInput)} reads and writes only
- * the caller-owned {@link State}: same state + same input gives the same result, always
- * (AGENTS.md rule 2), and there is no allocation on the tick path (rule 7). The public
- * contract is the mutable-state form; solvers copy states when they need branching.
+ * <p><b>Purity and allocation.</b> {@link #step(State, TraceInput, CollisionWorld)} reads
+ * and writes only the caller-owned {@link State} plus the world's query scratch: same
+ * state + same input gives the same result, always (AGENTS.md rule 2), and there is no
+ * allocation on the tick path (rule 7). The public contract is the mutable-state form;
+ * solvers copy states when they need branching.
  */
 public final class MovementSim {
 
     /**
      * Floor block slipperiness: stone = 0.6f (notes section 2.1, MCPK "Slipperiness"
-     * page). Hand-typed ONLY until task 1.3 loads it from {@code blocks.json}; the flat
-     * goldens all run on stone.
+     * page). Hand-typed ONLY until task 1.3 loads it from {@code blocks.json}.
      */
     private static final float SLIPPERINESS = 0.6f;
 
-    /**
-     * The 1.1 world model: a single full-block stone layer {@code y 64..65}, its top
-     * surface at y=65.0, everywhere (the worlds of the {@code *_flat_01} scenarios).
-     */
-    public static final double FLOOR_TOP = 65.0;
-
     /** Entity width 0.6f, halved as a float (Entity.setPosition, Entity.java:392-399). */
     private static final float WIDTH_HALF = 0.6f / 2.0f;
+
+    /** Entity height 1.8f (Entity.java:172); EntityPlayer keeps it. */
+    private static final float HEIGHT = 1.8f;
+
+    /**
+     * EntityLivingBase.stepHeight = 0.6f (EntityLivingBase.java:221, constructor). The
+     * local player never changes it; only EntityPlayerMP (:197) and remote players
+     * (EntityOtherPlayerMP.java:31) zero it.
+     */
+    private static final float STEP_HEIGHT = 0.6f;
 
     /** EntityPlayer.speedInAir, 0.02f (EntityPlayer.java:184). */
     private static final float SPEED_IN_AIR = 0.02f;
@@ -80,13 +86,21 @@ public final class MovementSim {
         /**
          * The entity box's X/Z extents. They persist across ticks: {@code moveEntity}
          * offsets them and re-derives the position as their midpoint
-         * (Entity.java:604-608, 756-760). Y needs no extents: end-of-tick posY IS the
-         * box's minY, and maxY never matters in the flat subset.
+         * (Entity.java:604-608, 756-760). Y needs no min extents: end-of-tick posY IS
+         * the box's minY (:758).
          */
         public double minX;
         public double maxX;
         public double minZ;
         public double maxZ;
+
+        /**
+         * The entity box's maxY. Carried across ticks, NOT re-derived from y: the game
+         * builds it once per teleport as {@code y + (double)height}
+         * (Entity.setPosition, Entity.java:396-398) and then only ever offsets the box
+         * (:599, :604, :608, :623, :639, :666), so rounding drift accumulates.
+         */
+        public double maxY;
 
         /** EntityLivingBase.jumpTicks, the 10-tick autojump cooldown (EntityLivingBase.java:1474-1476, 1519-1524). */
         public int jumpTicks;
@@ -103,6 +117,13 @@ public final class MovementSim {
          */
         public float moveForward;
 
+        /**
+         * The previous tick's {@code movementInput.sneak} key ({@code flag1},
+         * EntityPlayerSP.java:592, read before :595 updates the input and used by the
+         * sprint-start test at :606).
+         */
+        public boolean prevSneak;
+
         /** EntityLivingBase.jumpMovementFactor, the air acceleration set by the previous tick (notes 1.6). */
         public float jumpMovementFactor;
     }
@@ -114,8 +135,8 @@ public final class MovementSim {
      * State matching a recorded {@code tick:-1} anchor line: the settle left the player at
      * rest on the floor with no keys, so the timers are idle, {@code moveForward} is 0 and
      * the last tail already ran with the walk air factor. The box is built from the
-     * position (the harness teleports the player; Entity.setPosition, Entity.java:392-399)
-     * and the settle ticks move nothing.
+     * position exactly like the teleport did (Entity.setPosition, Entity.java:392-399),
+     * and the settle's clamped-to-zero offsets left it untouched.
      */
     public static State initialState(double x, double y, double z,
                                      double vx, double vy, double vz,
@@ -136,21 +157,23 @@ public final class MovementSim {
         s.sprintingTicksLeft = sprinting ? 600 : 0;      // EntityPlayerSP.java:403
         s.sprintToggleTimer = 0;
         s.moveForward = 0.0f;                            // the settle ran with zero keys
+        s.prevSneak = false;                             // the settle ran with zero keys
         s.jumpMovementFactor = SPEED_IN_AIR;             // tail of the last settle tick
         s.minX = x - (double) WIDTH_HALF;
         s.maxX = x + (double) WIDTH_HALF;
         s.minZ = z - (double) WIDTH_HALF;
         s.maxZ = z + (double) WIDTH_HALF;
+        s.maxY = y + (double) HEIGHT;                    // Entity.java:396-398
         return s;
     }
 
     /**
-     * Advances one game tick, in place.
+     * Advances one game tick, in place, against the scenario's collision world.
      *
-     * @throws UnsupportedOperationException for any input outside the 1.1 scope (see the
-     *         class comment); the message names the task that will bring it
+     * @throws UnsupportedOperationException for any input outside the current scope (see
+     *         the class comment); the message names the task that will bring it
      */
-    public static void step(State s, TraceInput in) {
+    public static void step(State s, TraceInput in, CollisionWorld world) {
         if (in.yaw != 0.0f) {
             throw new UnsupportedOperationException(
                     "task 1.1 supports yaw = 0.0f only; non-axis yaw needs the real"
@@ -160,11 +183,6 @@ public final class MovementSim {
         if (in.ms != 0.0f) {
             throw new UnsupportedOperationException(
                     "task 1.1 supports W-only movement (no S/A/D strafe), got ms = " + in.ms);
-        }
-        if (in.sneak != 0) {
-            throw new UnsupportedOperationException(
-                    "sneaking is out of scope: Entity.moveEntity's sneak edge slowdown"
-                            + " (Entity.java:576-593) needs block queries (task 1.2)");
         }
 
         // --- EntityPlayerSP.onLivingUpdate: input -> sprint state
@@ -182,7 +200,7 @@ public final class MovementSim {
         applyMomentumThreshold(s);                       // :1492-1500
         // :1502-1510 isMovementBlocked() is false (survival, alive), so
         // updateEntityActionState() copies the input into the entity (notes 1.5 step 24).
-        if (in.jump != 0) {                              // :1513-1525; no water/lava in 1.1
+        if (in.jump != 0) {                              // :1513-1525; no water/lava in scope
             if (s.onGround && s.jumpTicks == 0) {
                 jump(s);
                 s.jumpTicks = 10;                        // :1519-1521
@@ -192,7 +210,7 @@ public final class MovementSim {
         }
         float strafe = 0.0f;                             // in.ms == 0 enforced above
         float forward = s.moveForward * 0.98f;           // :1527-1530
-        moveEntityWithHeading(s, strafe, forward);       // :1531
+        moveEntityWithHeading(s, strafe, forward, in.sneak != 0, world);  // :1531
 
         // --- EntityPlayer.onLivingUpdate tail
         //     (notes section 1.6, EntityPlayer.java:534-538): next tick's air acceleration.
@@ -202,6 +220,11 @@ public final class MovementSim {
         }
         // :538 setAIMoveSpeed is a no-op for players: getAIMoveSpeed() reads the attribute
         // live, which aimoveSpeed() below mirrors.
+
+        // The moveEntity sneak clamp reads isSneaking() = movementInput.sneak
+        // (EntityPlayerSP.java:527-530, no inventory open), and the next tick's sprint
+        // test reads this tick's key as its flag1 (:592).
+        s.prevSneak = in.sneak != 0;
     }
 
     /**
@@ -218,12 +241,13 @@ public final class MovementSim {
         if (s.sprintToggleTimer > 0) {                   // :559-561
             --s.sprintToggleTimer;
         }
+        boolean wasSneak = s.prevSneak;                  // :592 flag1, BEFORE the keys are read
         boolean wasForward = s.moveForward >= 0.8f;      // :594, BEFORE the keys are read
         s.moveForward = in.mf;                           // :595 (recorded axis, notes 1.4)
         // :596-599 item-use axis scaling and :601-604 pushOutOfBlocks are not modelled:
         // neither is recorded in the traces (notes section 4 lists pushOutOfBlocks).
         boolean foodOk = true;                           // :605 food > 6 || allowFlying (constant in the harness)
-        if (s.onGround && !wasForward && s.moveForward >= 0.8f && !s.sprinting && foodOk) {
+        if (s.onGround && !wasSneak && !wasForward && s.moveForward >= 0.8f && !s.sprinting && foodOk) {
             if (s.sprintToggleTimer <= 0 && in.sprint == 0) {
                 s.sprintToggleTimer = 7;                 // :606-608 double-tap window
             } else {
@@ -293,9 +317,10 @@ public final class MovementSim {
      * (EntityLivingBase.java:1250-1286; notes sections 1.7 and 2.1-2.6). The
      * ladder/water/lava branches (:1287-1323) belong to task 1.4.
      */
-    private static void moveEntityWithHeading(State s, float strafe, float forward) {
+    private static void moveEntityWithHeading(State s, float strafe, float forward,
+            boolean sneaking, CollisionWorld world) {
         // f4 = block.slipperiness * 0.91f from the block under the feet (:1254-1257);
-        // the flat world is stone everywhere.
+        // still the constant stone value until task 1.3 reads blocks.json.
         float f4 = 0.91f;
         if (s.onGround) {
             f4 = SLIPPERINESS * 0.91f;
@@ -307,7 +332,7 @@ public final class MovementSim {
         if (s.onGround) {                                // (still the PRE-move onGround)
             f4 = SLIPPERINESS * 0.91f;
         }
-        moveEntity(s);                                   // :1279, notes section 2.8
+        moveEntity(s, sneaking, world);                  // :1279, notes section 2.8
         s.vy -= 0.08;                                    // :1283 gravity
         s.vy *= (double) 0.98f;                          // :1284, the widened float 0.9800000190734863
         s.vx *= (double) f4;                             // :1285
@@ -334,48 +359,234 @@ public final class MovementSim {
     }
 
     /**
-     * Entity.moveEntity, flat full-floor subset (Entity.java:553-712; notes section 2.8).
+     * Entity.moveEntity (Entity.java:553-712; notes section 2.8). The noClip, isInWeb and
+     * ridingEntity branches are never taken in the harness, and the walk-distance
+     * bookkeeping (:700-712) does not feed back into motion.
      *
-     * <p>The 1.1 world is a full stone layer with its top at {@link #FLOOR_TOP}: the Y
-     * clamp is the distance to the floor face while the feet are at or above it
-     * (AxisAlignedBB.calculateYOffset, AxisAlignedBB.java:132-146), and the floor's side
-     * faces and the step-up (:609-673) are unreachable with feet at/above 65.0. The X/Z
-     * box extents persist across ticks and the position is their midpoint
-     * (Entity.java:604-608, 756-760).
+     * <p>The sweep is the game's, line by line: sneak edge clamp first (:576-593), then
+     * the axis passes Y -> X -> Z over one query list (:594-608), then the step-up retry
+     * (:609-673) with both candidate boxes and the "did the retry actually help" revert.
+     * All queries and box comparisons happen in {@link CollisionWorld} on the dumped
+     * shapes; this method only sequences them.
      */
-    private static void moveEntity(State s) {
+    private static void moveEntity(State s, boolean sneaking, CollisionWorld world) {
         double dx = s.vx;
         double dy = s.vy;
         double dz = s.vz;
-        double d3 = dx;
+        double d3 = dx;                                  // :573-575 the raw motion
         double d4 = dy;
         double d5 = dz;
 
-        if (dy < 0.0 && s.y >= FLOOR_TOP) {              // Entity.java:595-600, Y axis first
-            double d = FLOOR_TOP - s.y;
-            if (d > dy) {
-                dy = d;                                  // clamped to the floor face
+        double minX = s.minX;
+        double minY = s.y;                               // posY IS box.minY (:756-760)
+        double minZ = s.minZ;
+        double maxX = s.maxX;
+        double maxY = s.maxY;                            // carried, see State.maxY
+        double maxZ = s.maxZ;
+
+        boolean flag = s.onGround && sneaking;           // :576; && instanceof EntityPlayer is always true
+        if (flag) {                                      // :577-593 sneak edge clamp, 0.05 steps
+            double d6 = 0.05;                            // :578
+            while (dx != 0.0 && world.isEmpty(minX + dx, minY - 1.0, minZ,
+                    maxX + dx, maxY - 1.0, maxZ)) {      // :579 box.offset(x, -1.0, 0.0)
+                dx = dx < d6 && dx >= -d6 ? 0.0 : (dx > 0.0 ? (dx -= d6) : (dx += d6));
+                d3 = dx;                                 // :580-581
+            }
+            while (dz != 0.0 && world.isEmpty(minX, minY - 1.0, minZ + dz,
+                    maxX, maxY - 1.0, maxZ + dz)) {      // :583 box.offset(0.0, -1.0, z)
+                dz = dz < d6 && dz >= -d6 ? 0.0 : (dz > 0.0 ? (dz -= d6) : (dz += d6));
+                d5 = dz;                                 // :584-585
+            }
+            while (dx != 0.0 && dz != 0.0 && world.isEmpty(minX + dx, minY - 1.0, minZ + dz,
+                    maxX + dx, maxY - 1.0, maxZ + dz)) { // :587 box.offset(x, -1.0, z)
+                dx = dx < d6 && dx >= -d6 ? 0.0 : (dx > 0.0 ? (dx -= d6) : (dx += d6));
+                d3 = dx;
+                dz = dz < d6 && dz >= -d6 ? 0.0 : (dz > 0.0 ? (dz -= d6) : (dz += d6));
+                d5 = dz;                                 // :588-591
             }
         }
-        // X (Entity.java:601-604) and Z (:605-608): nothing clamps them in this world
-        // (the floor fails the offset methods' Y overlap tests, AxisAlignedBB.java:115, 153).
+        double preMinX = minX;                           // :595 axisalignedbb = the pre-move box
+        double preMinY = minY;
+        double preMinZ = minZ;
+        double preMaxX = maxX;
+        double preMaxY = maxY;
+        double preMaxZ = maxZ;
 
-        double minY = s.y + dy;
-        s.minX += dx;
-        s.maxX += dx;
-        s.minZ += dz;
-        s.maxZ += dz;
-        s.x = (s.minX + s.maxX) / 2.0;                   // resetPositionToBB, Entity.java:756-760
-        s.y = minY;
-        s.z = (s.minZ + s.maxZ) / 2.0;
-
-        s.colH = d3 != dx || d5 != dz;                   // Entity.java:677-680
-        s.colV = d4 != dy;
-        s.onGround = s.colV && d4 < 0.0;
-        // Entity.java:690 updateFallState tracks fall distance only, which nothing in 1.1 reads.
-        if (d4 != dy) {
-            s.vy = 0.0;                                  // Entity.java:697-699 -> Block.onLanded, Block.java:1125-1127
+        // :594 list1 = world.getCollidingBoundingBoxes(this, box.addCoord(x, y, z))
+        world.query(addMin(minX, dx), addMin(minY, dy), addMin(minZ, dz),
+                addMax(maxX, dx), addMax(maxY, dy), addMax(maxZ, dz));
+        for (int i = 0; i < world.queryCount(); i++) {   // :596-598 Y first
+            dy = world.yOffset(world.queryBox(i), minX, minY, minZ, maxX, maxY, maxZ, dy);
         }
-        // Entity.java:691-696 motionX/Z zeroing: d3 == dx and d5 == dz here, nothing to zero.
+        minY += dy;                                      // :599 offset(0.0, y, 0.0)
+        maxY += dy;
+        boolean flag1 = s.onGround || d4 != dy && d4 < 0.0;  // :600
+        for (int i = 0; i < world.queryCount(); i++) {   // :601-603 then X
+            dx = world.xOffset(world.queryBox(i), minX, minY, minZ, maxX, maxY, maxZ, dx);
+        }
+        minX += dx;                                      // :604 offset(x, 0.0, 0.0)
+        maxX += dx;
+        for (int i = 0; i < world.queryCount(); i++) {   // :605-608 then Z
+            dz = world.zOffset(world.queryBox(i), minX, minY, minZ, maxX, maxY, maxZ, dz);
+        }
+        minZ += dz;                                      // :608 offset(0.0, 0.0, z)
+        maxZ += dz;
+
+        if ((double) STEP_HEIGHT > 0.0 && flag1 && (d3 != dx || d5 != dz)) {  // :609-673
+            double d = dx;                               // :610-612
+            double d7 = dy;
+            double d8 = dz;
+            double nMinX = minX;                         // :613 axisalignedbb3, the post-pass box
+            double nMinY = minY;
+            double nMinZ = minZ;
+            double nMaxX = maxX;
+            double nMaxY = maxY;
+            double nMaxZ = maxZ;
+            minX = preMinX;                              // :614 back to the pre-move box
+            minY = preMinY;
+            minZ = preMinZ;
+            maxX = preMaxX;
+            maxY = preMaxY;
+            maxZ = preMaxZ;
+            dy = (double) STEP_HEIGHT;                   // :615 y = stepHeight (float widened)
+            // :616 list = world.getCollidingBoundingBoxes(this, box.addCoord(d3, y, d5))
+            world.query(addMin(minX, d3), addMin(minY, dy), addMin(minZ, d5),
+                    addMax(maxX, d3), addMax(maxY, dy), addMax(maxZ, d5));
+
+            // Candidate A (:617-633): lift the box extended by the move, then move it.
+            double a5MinX = addMin(minX, d3);            // :618 axisalignedbb5 = box.addCoord(d3, 0.0, d5)
+            double a5MinY = minY;
+            double a5MinZ = addMin(minZ, d5);
+            double a5MaxX = addMax(maxX, d3);
+            double a5MaxY = maxY;
+            double a5MaxZ = addMax(maxZ, d5);
+            double d9 = dy;                              // :619-622
+            for (int i = 0; i < world.queryCount(); i++) {
+                d9 = world.yOffset(world.queryBox(i), a5MinX, a5MinY, a5MinZ,
+                        a5MaxX, a5MaxY, a5MaxZ, d9);
+            }
+            double aMinX = preMinX;                      // :623 offset(0.0, d9, 0.0)
+            double aMinY = preMinY + d9;
+            double aMinZ = preMinZ;
+            double aMaxX = preMaxX;
+            double aMaxY = preMaxY + d9;
+            double aMaxZ = preMaxZ;
+            double d15 = d3;                             // :624-627
+            for (int i = 0; i < world.queryCount(); i++) {
+                d15 = world.xOffset(world.queryBox(i), aMinX, aMinY, aMinZ,
+                        aMaxX, aMaxY, aMaxZ, d15);
+            }
+            aMinX += d15;                                // :628
+            aMaxX += d15;
+            double d16 = d5;                             // :629-632
+            for (int i = 0; i < world.queryCount(); i++) {
+                d16 = world.zOffset(world.queryBox(i), aMinX, aMinY, aMinZ,
+                        aMaxX, aMaxY, aMaxZ, d16);
+            }
+            aMinZ += d16;                                // :633
+            aMaxZ += d16;
+
+            // Candidate B (:634-649): move first, then lift the plain box.
+            double d17 = dy;                             // :635-638
+            for (int i = 0; i < world.queryCount(); i++) {
+                d17 = world.yOffset(world.queryBox(i), preMinX, preMinY, preMinZ,
+                        preMaxX, preMaxY, preMaxZ, d17);
+            }
+            double bMinX = preMinX;                      // :639 offset(0.0, d17, 0.0)
+            double bMinY = preMinY + d17;
+            double bMinZ = preMinZ;
+            double bMaxX = preMaxX;
+            double bMaxY = preMaxY + d17;
+            double bMaxZ = preMaxZ;
+            double d18 = d3;                             // :640-643
+            for (int i = 0; i < world.queryCount(); i++) {
+                d18 = world.xOffset(world.queryBox(i), bMinX, bMinY, bMinZ,
+                        bMaxX, bMaxY, bMaxZ, d18);
+            }
+            bMinX += d18;                                // :644
+            bMaxX += d18;
+            double d19 = d5;                             // :645-648
+            for (int i = 0; i < world.queryCount(); i++) {
+                d19 = world.zOffset(world.queryBox(i), bMinX, bMinY, bMinZ,
+                        bMaxX, bMaxY, bMaxZ, d19);
+            }
+            bMinZ += d19;                                // :649
+            bMaxZ += d19;
+
+            double d20 = d15 * d15 + d16 * d16;          // :650 the farther candidate wins
+            double d10 = d18 * d18 + d19 * d19;          // :651
+            if (d20 > d10) {                             // :652-656
+                dx = d15;
+                dz = d16;
+                dy = -d9;
+                minX = aMinX;
+                minY = aMinY;
+                minZ = aMinZ;
+                maxX = aMaxX;
+                maxY = aMaxY;
+                maxZ = aMaxZ;
+            } else {                                     // :657-661
+                dx = d18;
+                dz = d19;
+                dy = -d17;
+                minX = bMinX;
+                minY = bMinY;
+                minZ = bMinZ;
+                maxX = bMaxX;
+                maxY = bMaxY;
+                maxZ = bMaxZ;
+            }
+            for (int i = 0; i < world.queryCount(); i++) {  // :663-665 settle down onto the step
+                dy = world.yOffset(world.queryBox(i), minX, minY, minZ, maxX, maxY, maxZ, dy);
+            }
+            minY += dy;                                  // :666
+            maxY += dy;
+            if (d * d + d8 * d8 >= dx * dx + dz * dz) {  // :667-672 the retry gained nothing
+                dx = d;
+                dy = d7;
+                dz = d8;
+                minX = nMinX;
+                minY = nMinY;
+                minZ = nMinZ;
+                maxX = nMaxX;
+                maxY = nMaxY;
+                maxZ = nMaxZ;
+            }
+        }
+
+        s.minX = minX;                                   // :676 resetPositionToBB (:756-760)
+        s.maxX = maxX;
+        s.minZ = minZ;
+        s.maxZ = maxZ;
+        s.maxY = maxY;
+        s.x = (minX + maxX) / 2.0;                       // :757
+        s.y = minY;                                      // :758
+        s.z = (minZ + maxZ) / 2.0;                       // :759
+        s.colH = d3 != dx || d5 != dz;                   // :677
+        s.colV = d4 != dy;                               // :678
+        s.onGround = s.colV && d4 < 0.0;                 // :679
+        if (d3 != dx) {                                  // :691-693
+            s.vx = 0.0;
+        }
+        if (d5 != dz) {                                  // :694-696
+            s.vz = 0.0;
+        }
+        if (d4 != dy) {
+            // :697-699 -> Block.onLanded, which zeroes motionY for every block in scope
+            // (Block.java:1125-1127; slime alone overrides it, BlockSlime.java:41).
+            s.vy = 0.0;
+        }
+        // :700-712 updateFallState/canTriggerWalking: walk distance and fall distance are
+        // tracked but not recorded, and nothing in scope reads them back.
+    }
+
+    /** AxisAlignedBB.addCoord's min side (AxisAlignedBB.java:42-65). */
+    private static double addMin(double min, double delta) {
+        return delta < 0.0 ? min + delta : min;
+    }
+
+    /** AxisAlignedBB.addCoord's max side (AxisAlignedBB.java:42-65). */
+    private static double addMax(double max, double delta) {
+        return delta > 0.0 ? max + delta : max;
     }
 }

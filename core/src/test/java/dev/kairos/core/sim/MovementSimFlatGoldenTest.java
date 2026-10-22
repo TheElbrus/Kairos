@@ -1,7 +1,9 @@
 package dev.kairos.core.sim;
 
+import dev.kairos.core.block.BlockData;
 import dev.kairos.core.scenario.Json;
 import dev.kairos.core.scenario.ScenarioLocator;
+import dev.kairos.core.scenario.ScenarioParser;
 import dev.kairos.core.trace.TraceInput;
 import org.junit.jupiter.api.Test;
 
@@ -59,17 +61,19 @@ class MovementSimFlatGoldenTest {
         Arrays.sort(files);
         assertEquals(PINNED.size(), files.length,
                 "flat golden count changed; add or remove the trace and extend PINNED deliberately");
+        CollisionWorld world = flatWorld();
         for (File file : files) {
             String name = file.getName().substring(0, file.getName().length() - ".jsonl".length());
             Integer expectedLines = PINNED.get(name);
             if (expectedLines == null) {
                 fail("unpinned trace file " + file + " (extend PINNED when recording Part B)");
             }
-            replay(file, name, expectedLines);
+            replay(file, name, expectedLines, world);
         }
     }
 
-    private static void replay(File file, String name, int expectedLines) throws IOException {
+    private static void replay(File file, String name, int expectedLines, CollisionWorld world)
+            throws IOException {
         assertLfOnly(file);
         List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
         assertEquals(expectedLines, lines.size(), "pinned line count of " + file);
@@ -86,7 +90,7 @@ class MovementSimFlatGoldenTest {
             Map<String, Object> line = jsonObject(lines.get(i), name + " line " + (i + 1));
             int tick = intField(line, "tick");
             assertEquals(i - 1, tick, name + " line " + (i + 1) + " must be tick " + (i - 1));
-            MovementSim.step(state, input(line));
+            MovementSim.step(state, input(line), world);
 
             checkDouble(tick, "posX", listField(line, "pos", 0), state.x);
             checkDouble(tick, "posY", listField(line, "pos", 1), state.y);
@@ -133,15 +137,39 @@ class MovementSimFlatGoldenTest {
      * Repo root: the first ancestor of the test working dir with the repo marker
      * ({@link ScenarioLocator#ROOT_MARKER}, the root build file {@code settings.gradle}).
      */
-    private static File flatGoldenDir() {
+    private static File repoRoot() {
         File dir = new File(System.getProperty("user.dir")).getAbsoluteFile();
         for (File f = dir; f != null; f = f.getParentFile()) {
             if (new File(f, ScenarioLocator.ROOT_MARKER).isFile()) {
-                return new File(f, "data/traces/flat");
+                return f;
             }
         }
         throw new IllegalStateException(
                 "no " + ScenarioLocator.ROOT_MARKER + " found above " + dir);
+    }
+
+    private static File flatGoldenDir() {
+        return new File(repoRoot(), "data/traces/flat");
+    }
+
+    /**
+     * The flat traces were recorded on one stone layer (top at y 65), the world task
+     * 1.1's flat model hard-coded and task 1.2 replaces with a real sweep. The frozen
+     * {@code *_flat_01} scenarios predate the per-region props selector, so instead of
+     * letting the parser guess a state for a multi-state block they are stated here
+     * explicitly: {@code variant=stone} is the state they were recorded with (the stone
+     * block's default). One layer beyond every flat path (longest ends near z 15) keeps
+     * the replay's collision query identical to the recorded ground.
+     */
+    private static CollisionWorld flatWorld() throws IOException {
+        String json = "{\"name\": \"flat\","
+                + " \"start\": {\"pos\": [0.5, 65.0, 0.5]},"
+                + " \"blocks\": [{\"from\": [-2, 64, -8], \"to\": [2, 64, 30],"
+                + " \"id\": \"stone\", \"props\": {\"variant\": \"stone\"}}],"
+                + " \"inputs\": [{\"ticks\": 1}]}";
+        return CollisionWorld.of(
+                BlockData.load(new File(repoRoot(), "data/1.8.9/blocks.json")),
+                ScenarioParser.parse(json));
     }
 
     private static TraceInput input(Map<String, Object> line) {

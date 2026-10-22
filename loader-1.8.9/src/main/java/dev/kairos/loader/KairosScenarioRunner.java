@@ -10,6 +10,7 @@ import dev.kairos.core.scenario.ScenarioLocator;
 import dev.kairos.core.scenario.ScenarioParser;
 
 import net.minecraft.block.Block; // mc-src/net/minecraft/block/Block.java
+import net.minecraft.block.properties.IProperty; // mc-src/net/minecraft/block/properties/IProperty.java
 import net.minecraft.block.state.IBlockState; // mc-src/net/minecraft/block/state/IBlockState.java
 import net.minecraft.client.Minecraft; // mc-src/net/minecraft/client/Minecraft.java
 import net.minecraft.client.entity.EntityPlayerSP; // mc-src/net/minecraft/client/entity/EntityPlayerSP.java
@@ -17,6 +18,7 @@ import net.minecraft.client.settings.KeyBinding; // mc-src/net/minecraft/client/
 import net.minecraft.command.ICommandSender; // mc-src/net/minecraft/command/ICommandSender.java
 import net.minecraft.entity.player.EntityPlayerMP; // mc-src/net/minecraft/entity/player/EntityPlayerMP.java
 import net.minecraft.item.ItemStack; // mc-src/net/minecraft/item/ItemStack.java
+import net.minecraft.network.play.server.S23PacketBlockChange; // mc-src/net/minecraft/network/play/server/S23PacketBlockChange.java
 import net.minecraft.server.MinecraftServer; // mc-src/net/minecraft/server/MinecraftServer.java
 import net.minecraft.util.BlockPos; // mc-src/net/minecraft/util/BlockPos.java
 import net.minecraft.util.ChatComponentText; // mc-src/net/minecraft/util/ChatComponentText.java
@@ -36,6 +38,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Map;
 
 /**
  * Runs one scenario (PLAN.md Phase 0 task 0.5): builds the blocks on the integrated
@@ -89,6 +92,20 @@ public final class KairosScenarioRunner {
 
     private Phase phase = Phase.IDLE;
     private Scenario scenario;
+    private IBlockState[] regionStates;
+
+    /**
+     * World states under the scenario regions before this run replaced them, captured on
+     * the first build ({@code savedCoords} holds x,y,z triples parallel to the states).
+     * Restored when the run ends so runs cannot contaminate the next recording; written
+     * on the server thread inside the build task, read on the client thread at restore.
+     */
+    private volatile IBlockState[] savedStates;
+    private volatile int[] savedCoords;
+    private volatile int savedDim;
+
+    /** Bumped per run; a queued build from a dead run must not place blocks. */
+    private volatile int runGeneration;
     private String traceName;
     private int runsTotal;
     private int runIndex;
@@ -139,6 +156,13 @@ public final class KairosScenarioRunner {
             chatRed(sender, "scenario '" + name + "' is invalid: " + e.getMessage());
             return;
         }
+        IBlockState[] states;
+        try {
+            states = resolveRegionStates(parsed);
+        } catch (IllegalArgumentException e) {
+            chatRed(sender, "scenario '" + name + "' is invalid: " + e.getMessage());
+            return;
+        }
 
         if (runs > 1) {
             File dir = tracesDir(mc);
@@ -156,12 +180,16 @@ public final class KairosScenarioRunner {
         }
 
         this.scenario = parsed;
+        this.regionStates = states;
         this.runsTotal = runs;
         this.runIndex = 0;
         beginRun(sender);
     }
 
     private void beginRun(ICommandSender sender) {
+        this.runGeneration++;
+        this.savedStates = null;
+        this.savedCoords = null;
         this.traceName = this.runsTotal > 1 ? runFileBase(this.scenario.name, this.runIndex)
                 : this.scenario.name;
         this.waitTicks = 0;
@@ -219,8 +247,17 @@ public final class KairosScenarioRunner {
                     this.phase = Phase.TELEPORT2;
                     this.waitTicks = 0;
                 } else if (timedOut()) {
-                    abort("client world does not show every scenario block");
+                    abort("client world does not show every scenario block: "
+                            + firstBlockMismatch(mc));
                     return;
+                } else if (this.waitTicks % 20 == 0) {
+                    // Two failure modes while chunks settle: a block placed into a
+                    // not-yet-populated chunk gets no update packet (World.java:381), and
+                    // re-setting an unchanged state sends nothing either (Chunk
+                    // .setBlockState returns null -> World.setBlockState returns early),
+                    // so rebuild AND resend the current states directly.
+                    buildBlocks(mc);
+                    resendBlocks(mc);
                 }
                 break;
             case TELEPORT2:
@@ -322,6 +359,7 @@ public final class KairosScenarioRunner {
     private void finishRun() {
         Minecraft mc = Minecraft.getMinecraft();
         restoreMovementInput(mc);
+        scheduleRestore(mc);
         chat(null, "run " + (this.runIndex + 1) + "/" + this.runsTotal + " done: "
                 + this.scenario.totalInputTicks() + " ticks -> " + this.traceName + ".jsonl");
 
@@ -363,6 +401,7 @@ public final class KairosScenarioRunner {
             this.recorder.stop(null);
         }
         restoreMovementInput(mc);
+        scheduleRestore(mc);
         chatRed(null, "scenario aborted: " + why);
         this.phase = Phase.IDLE;
     }
@@ -425,28 +464,97 @@ public final class KairosScenarioRunner {
         this.waitTicks = 0;
     }
 
+    /**
+     * Resolves every scenario region's block state once, on the command's thread, before
+     * any world is touched: an unknown id, a property name the block does not have or a
+     * value that is not an allowed value must fail with a clear message instead of
+     * building half a scenario. The scenario {@code props} are applied onto the block's
+     * default state ({@code IBlockState.withProperty}, IBlockState.java:25); the value
+     * strings are the exact names {@code data/1.8.9/blocks.json} uses
+     * ({@code IProperty.getName(T)}, IProperty.java:21, the same function
+     * {@code BlockDumper.valueName} wrote with, BlockDumper.java:334-336).
+     */
+    private static IBlockState[] resolveRegionStates(Scenario scenario) {
+        IBlockState[] states = new IBlockState[scenario.blocks.size()];
+        for (int i = 0; i < states.length; i++) {
+            ScenarioBlock region = scenario.blocks.get(i);
+            Block block = Block.getBlockFromName(normalizeId(region.id));   // Block.java:366
+            if (block == null) {
+                throw new IllegalArgumentException("blocks[" + i + "].id: unknown block \""
+                        + region.id + "\"");
+            }
+            IBlockState state = block.getDefaultState();
+            for (Map.Entry<String, String> prop : region.props.entrySet()) {
+                state = applyProp(state, prop.getKey(), prop.getValue(), i);
+            }
+            states[i] = state;
+        }
+        return states;
+    }
+
+    /** One {@code props} entry applied by value name, or {@link IllegalArgumentException}. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static IBlockState applyProp(IBlockState state, String name, String value,
+            int index) {
+        IProperty property = null;
+        for (IProperty candidate : state.getPropertyNames()) {      // IBlockState.java:15
+            if (candidate.getName().equals(name)) {
+                property = candidate;
+                break;
+            }
+        }
+        if (property == null) {
+            throw new IllegalArgumentException("blocks[" + index + "].props." + name
+                    + ": block \"" + Block.blockRegistry.getNameForObject(state.getBlock())
+                    + "\" has no such property");
+        }
+        for (Object allowed : property.getAllowedValues()) {        // IProperty.java:11
+            if (property.getName((Comparable) allowed).equals(value)) {  // IProperty.java:21
+                return state.withProperty(property, (Comparable) allowed);  // IBlockState.java:25
+            }
+        }
+        throw new IllegalArgumentException("blocks[" + index + "].props." + name + ": \""
+                + value + "\" is not a value of this property");
+    }
+
     /** Fills every scenario region, flag 2 (sync to clients, no neighbour update). */
     private void buildBlocks(Minecraft mc) {
         final MinecraftServer server = mc.getIntegratedServer();
         final int dim = mc.theWorld.provider.getDimensionId();
+        this.savedDim = dim;
         final ScenarioBlock[] blocks =
                 this.scenario.blocks.toArray(new ScenarioBlock[this.scenario.blocks.size()]);
+        final IBlockState[] states = this.regionStates;
+        final boolean capture = this.savedStates == null;
+        final int volume = capture ? regionVolume(blocks) : 0;
+        final int generation = this.runGeneration;
         server.addScheduledTask(new Runnable() {
             @Override
             public void run() {
+                if (generation != runGeneration) {
+                    return;   // the run that asked for this build is gone
+                }
                 WorldServer world = server.worldServerForDimension(dim);
-                for (ScenarioBlock region : blocks) {
-                    Block block = Block.getBlockFromName(normalizeId(region.id));   // Block.java:366
-                    if (block == null) {
-                        continue;   // clientHasBlocks() reports the unknown id
-                    }
-                    IBlockState state = block.getDefaultState();
+                IBlockState[] olds = capture ? new IBlockState[volume] : null;
+                int[] coords = capture ? new int[volume * 3] : null;
+                int n = 0;
+                for (int r = 0; r < blocks.length; r++) {
+                    ScenarioBlock region = blocks[r];
+                    IBlockState state = states[r];
                     int stepX = region.toX >= region.fromX ? 1 : -1;
                     int stepY = region.toY >= region.fromY ? 1 : -1;
                     int stepZ = region.toZ >= region.fromZ ? 1 : -1;
                     for (int x = region.fromX; ; x += stepX) {
                         for (int y = region.fromY; ; y += stepY) {
                             for (int z = region.fromZ; ; z += stepZ) {
+                                if (capture) {
+                                    BlockPos pos = new BlockPos(x, y, z);
+                                    olds[n] = world.getBlockState(pos);
+                                    coords[n * 3] = x;
+                                    coords[n * 3 + 1] = y;
+                                    coords[n * 3 + 2] = z;
+                                    n++;
+                                }
                                 // flags 2 = send to clients, no neighbour update, exactly
                                 // like /setblock (CommandSetBlock.java:90).
                                 world.setBlockState(new BlockPos(x, y, z), state, 2);
@@ -457,26 +565,200 @@ public final class KairosScenarioRunner {
                         if (x == region.toX) break;
                     }
                 }
+                if (capture) {
+                    savedStates = olds;
+                    savedCoords = coords;
+                }
             }
         });
-        this.waitTicks = 0;
     }
 
-    /** @return true when the CLIENT world shows every scenario block (physics runs there). */
-    private boolean clientHasBlocks(Minecraft mc) {
-        for (ScenarioBlock region : this.scenario.blocks) {
-            Block expected = Block.getBlockFromName(normalizeId(region.id));
-            if (expected == null) {
-                abort("unknown block id '" + region.id + "'");
-                return false;
+    /**
+     * Sends the CURRENT server state of every scenario position as S23 block-change
+     * packets. Needed because setting an unchanged state sends nothing: repairing a
+     * position whose first update was suppressed requires an explicit packet.
+     */
+    private void resendBlocks(Minecraft mc) {
+        final MinecraftServer server = mc.getIntegratedServer();
+        final String playerName = mc.thePlayer.getName();
+        final int dim = mc.theWorld.provider.getDimensionId();
+        final ScenarioBlock[] blocks =
+                this.scenario.blocks.toArray(new ScenarioBlock[this.scenario.blocks.size()]);
+        final int generation = this.runGeneration;
+        server.addScheduledTask(new Runnable() {
+            @Override
+            public void run() {
+                if (generation != runGeneration) {
+                    return;
+                }
+                WorldServer world = server.worldServerForDimension(dim);
+                EntityPlayerMP serverPlayer = server.getConfigurationManager()
+                        .getPlayerByUsername(playerName);
+                if (world == null || serverPlayer == null) {
+                    return;
+                }
+                for (ScenarioBlock region : blocks) {
+                    int stepX = region.toX >= region.fromX ? 1 : -1;
+                    int stepY = region.toY >= region.fromY ? 1 : -1;
+                    int stepZ = region.toZ >= region.fromZ ? 1 : -1;
+                    for (int x = region.fromX; ; x += stepX) {
+                        for (int y = region.fromY; ; y += stepY) {
+                            for (int z = region.fromZ; ; z += stepZ) {
+                                serverPlayer.playerNetServerHandler.sendPacket(
+                                        new S23PacketBlockChange(world, new BlockPos(x, y, z)));
+                                if (z == region.toZ) break;
+                            }
+                            if (y == region.toY) break;
+                        }
+                        if (x == region.toX) break;
+                    }
+                }
             }
+        });
+    }
+
+    /** @return total number of positions covered by the scenario regions. */
+    private static int regionVolume(ScenarioBlock[] blocks) {
+        int total = 0;
+        for (ScenarioBlock region : blocks) {
+            total += (Math.abs(region.toX - region.fromX) + 1)
+                    * (Math.abs(region.toY - region.fromY) + 1)
+                    * (Math.abs(region.toZ - region.fromZ) + 1);
+        }
+        return total;
+    }
+
+    /**
+     * Schedules the pre-run world to be put back on the server thread. Called at the end
+     * of every run (also on abort) so leftover blocks can never leak into the next
+     * recording; no-op before the first build or when the world is already gone.
+     */
+    private void scheduleRestore(Minecraft mc) {
+        final MinecraftServer server = mc.getIntegratedServer();
+        final IBlockState[] olds = this.savedStates;
+        final int[] coords = this.savedCoords;
+        final int dim = this.savedDim;
+        this.savedStates = null;
+        this.savedCoords = null;
+        if (olds == null || server == null || mc.theWorld == null) {
+            return;
+        }
+        server.addScheduledTask(new Runnable() {
+            @Override
+            public void run() {
+                WorldServer world = server.worldServerForDimension(dim);
+                if (world == null) {
+                    return;
+                }
+                // Flag 2 like the build: the client must see the rollback too.
+                for (int i = 0; i < olds.length; i++) {
+                    world.setBlockState(new BlockPos(coords[i * 3], coords[i * 3 + 1],
+                            coords[i * 3 + 2]), olds[i], 2);
+                }
+            }
+        });
+    }
+
+    /**
+     * @return the first region position whose client state differs, with the expected
+     *         (requested and stored form), the client's and the server's view plus the
+     *         raw state-ID round trip.
+     */
+    private String firstBlockMismatch(Minecraft mc) {
+        WorldServer serverWorld = mc.getIntegratedServer() == null ? null
+                : mc.getIntegratedServer().worldServerForDimension(
+                        mc.theWorld.provider.getDimensionId());
+        for (int r = 0; r < this.scenario.blocks.size(); r++) {
+            ScenarioBlock region = this.scenario.blocks.get(r);
+            IBlockState requested = this.regionStates[r];
+            IBlockState expected = storedState(requested);
             int stepX = region.toX >= region.fromX ? 1 : -1;
             int stepY = region.toY >= region.fromY ? 1 : -1;
             int stepZ = region.toZ >= region.fromZ ? 1 : -1;
             for (int x = region.fromX; ; x += stepX) {
                 for (int y = region.fromY; ; y += stepY) {
                     for (int z = region.fromZ; ; z += stepZ) {
-                        if (mc.theWorld.getBlockState(new BlockPos(x, y, z)).getBlock() != expected) {
+                        BlockPos pos = new BlockPos(x, y, z);
+                        IBlockState actual = mc.theWorld.getBlockState(pos);
+                        if (actual != expected) {
+                            IBlockState server = serverWorld == null ? null
+                                    : serverWorld.getBlockState(pos);
+                            Integer id = Block.BLOCK_STATE_IDS.get(requested);
+                            String idText = id == null ? "not-in-state-ids"
+                                    : id + "->" + describeState(
+                                            Block.BLOCK_STATE_IDS.getByValue(id));
+                            return "(" + x + "," + y + "," + z + ") requested "
+                                    + describeState(requested)
+                                    + (requested == expected ? "" : " stored " + describeState(expected))
+                                    + " [" + idText + "] client "
+                                    + describeState(actual) + " server "
+                                    + (server == null ? "?" : describeState(server))
+                                    + (server == expected ? " [server ok]" : " [server differs]");
+                        }
+                        if (z == region.toZ) break;
+                    }
+                    if (y == region.toY) break;
+                }
+                if (x == region.toX) break;
+            }
+        }
+        return "none (raced between ticks - report this)";
+    }
+
+    /** @return compact full state, e.g. {@code minecraft:oak_stairs{facing=south, ...}}. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static String describeState(IBlockState state) {
+        StringBuilder out = new StringBuilder();
+        out.append(Block.blockRegistry.getNameForObject(state.getBlock())).append('{');
+        boolean first = true;
+        for (Map.Entry entry : ((Map<IProperty, Comparable>) state.getProperties()).entrySet()) {
+            if (!first) {
+                out.append(", ");
+            }
+            first = false;
+            IProperty property = (IProperty) entry.getKey();
+            out.append(property.getName()).append('=')
+                    .append(property.getName((Comparable) entry.getValue()));
+        }
+        return out.append('}').toString();
+    }
+
+    /**
+     * The world-storage form of a state. Chunks store 16-bit state ids, not state objects:
+     * {@code Block.registerBlock} packs every valid state as {@code blockId << 4 | meta}
+     * (Block.java:1934) and {@code ObjectIntIdentityMap.getByValue} returns the LAST state
+     * put on an id. BlockStairs.getMetaFromState (BlockStairs.java:537-543) ignores SHAPE,
+     * so all five shapes of one facing/half share an id and the world reads back one
+     * canonical shape. What the game simulates is unaffected: stair collision recomputes
+     * the shape from neighbours (addCollisionBoxesToList, BlockStairs.java:384-391), so
+     * placement checks must compare against this stored form or stairs never match.
+     */
+    private static IBlockState storedState(IBlockState state) {
+        int id = Block.BLOCK_STATE_IDS.get(state);          // -1 when unknown
+        if (id < 0) {
+            return state;
+        }
+        IBlockState stored = Block.BLOCK_STATE_IDS.getByValue(id);
+        return stored == null ? state : stored;
+    }
+
+    /** @return true when the CLIENT world shows every scenario block (physics runs there). */
+    private boolean clientHasBlocks(Minecraft mc) {
+        // The states are registry singletons: withProperty returns the container's table
+        // entry (BlockState.StateImplementation, BlockState.java:141-148) and equals is
+        // identity (:161-163), so reference equality IS full-state equality - a block
+        // with the right id but a wrong property value fails the check. Compare against
+        // the STORED form: a chunk keeps a 16-bit state id, not a state object.
+        for (int r = 0; r < this.scenario.blocks.size(); r++) {
+            ScenarioBlock region = this.scenario.blocks.get(r);
+            IBlockState expected = storedState(this.regionStates[r]);
+            int stepX = region.toX >= region.fromX ? 1 : -1;
+            int stepY = region.toY >= region.fromY ? 1 : -1;
+            int stepZ = region.toZ >= region.fromZ ? 1 : -1;
+            for (int x = region.fromX; ; x += stepX) {
+                for (int y = region.fromY; ; y += stepY) {
+                    for (int z = region.fromZ; ; z += stepZ) {
+                        if (mc.theWorld.getBlockState(new BlockPos(x, y, z)) != expected) {
                             return false;
                         }
                         if (z == region.toZ) break;

@@ -1,0 +1,14 @@
+{
+  "name": "head_bump_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 14], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [-2, 67, 2], "to": [2, 67, 13], "id": "stone", "props": {"variant": "stone"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 10, "w": 1, "sprint": 0, "jump": 0},
+    {"ticks": 24, "w": 1, "sprint": 0, "jump": 1},
+    {"ticks": 12, "w": 1, "sprint": 0, "jump": 0}
+  ]
+}

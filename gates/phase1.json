@@ -1,0 +1,64 @@
+{
+  "phase": 1,
+  "task": "1.8",
+  "status": "pass",
+  "tagPending": true,
+  "primaryRuntime": "java8",
+  "java8": {
+    "scenario": "fuzz_0000",
+    "warmupTicks": 2000000,
+    "measuredTicks": 10000000,
+    "repetitions": 5,
+    "ticksPerSecond": 14980777.438,
+    "nsPerTick": 66.752210,
+    "javaVersion": "1.8.0_504",
+    "javaVendor": "Temurin",
+    "os": "Windows 11",
+    "arch": "amd64",
+    "maxMemory": 7544504320,
+    "timestamp": "2026-10-22T15:18:30.473Z"
+  },
+  "jdk25": {
+    "scenario": "fuzz_0000",
+    "warmupTicks": 2000000,
+    "measuredTicks": 10000000,
+    "repetitions": 5,
+    "ticksPerSecond": 14636751.683,
+    "nsPerTick": 68.321170,
+    "javaVersion": "25.0.4.1",
+    "javaVendor": "Eclipse Adoptium",
+    "os": "Windows 11",
+    "arch": "amd64",
+    "maxMemory": 8489271296,
+    "timestamp": "2026-10-22T15:18:34.527332700Z"
+  },
+  "allocationBytesPerTick": 0,
+  "allocationMeasurement": {
+    "warmupSteps": 2000000,
+    "measuredSteps": 1000000,
+    "allocatedBytes": 0,
+    "noStepBaselineBytes": 0,
+    "deltaBytes": 0
+  },
+  "tests": {
+    "total": 95,
+    "failures": 0,
+    "skipped": 0
+  },
+  "goldens": 40,
+  "fuzz": 1000,
+  "allMatch": true,
+  "architecture": "passed",
+  "environment": {
+    "coreTestJavaHome": "C:\\Users\\Kay\\.jdks\\temurin-25.0.4.1",
+    "gradleUserHome": "C:\\Users\\Kay\\.gradle"
+  },
+  "commit": "0d0073e7adfbc7aae463acb5f546b7713812858b",
+  "date": "2026-10-22",
+  "commands": [
+    ".\\gradlew.bat :core:classes --console=plain --offline",
+    "C:\\Users\\Kay\\Desktop\\Personal\\Kairos\\.gradle-home\\jdks\\temurin-8-amd64-windows\\jdk8u504-b01\\bin\\java.exe -cp core\\build\\classes\\java\\main dev.kairos.core.bench.SimBench",
+    "C:\\Users\\Kay\\.jdks\\temurin-25.0.4.1\\bin\\java.exe -cp core\\build\\classes\\java\\main dev.kairos.core.bench.SimBench",
+    ".\\gradlew.bat :core:cleanTest :core:test --console=plain --offline"
+  ]
+}

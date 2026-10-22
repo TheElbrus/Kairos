@@ -1,0 +1,13 @@
+{
+  "name": "sprint_doubletap_01",
+  "start": {"pos": [0.5, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 30], "id": "stone", "props": {"variant": "stone"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 3, "w": 1, "sprint": 0, "jump": 0},
+    {"ticks": 1, "w": 0, "sprint": 0, "jump": 0},
+    {"ticks": 30, "w": 1, "sprint": 0, "jump": 0}
+  ]
+}

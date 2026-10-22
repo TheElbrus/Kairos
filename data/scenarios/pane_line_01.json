@@ -1,0 +1,12 @@
+{
+  "name": "pane_line_01",
+  "start": {"pos": [0.5, 65.0, 2.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 30], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [0, 65, 4], "to": [0, 65, 7], "id": "glass_pane", "props": {"east": "false", "north": "false", "south": "false", "west": "false"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 20, "w": 1, "sprint": 0, "jump": 0}
+  ]
+}

@@ -21,13 +21,15 @@ import dev.kairos.core.trace.TraceInput;
  * the scenario's collision world from {@code data/1.8.9/blocks.json} (task 1.2;
  * {@link CollisionWorld} owns the queries, this class owns the rules), with the
  * per-block {@code Block.slipperiness} under the feet read from the same dump (task 1.3;
- * ice/packed ice 0.98f, stone/air 0.6f). Still
+ * ice/packed ice 0.98f, stone/air 0.6f) and the ladder/vine clamp + climb impulse
+ * (task 1.4; EntityLivingBase.java:1265-1282). Still
  * {@link UnsupportedOperationException}: strafe and non-zero yaw (tasks 1.2/1.6),
- * ladder/water/lava/flying (1.4), pushOutOfBlocks and the item-use axis scaling (not
+ * water/lava/flying (after Gate 2), pushOutOfBlocks and the item-use axis scaling (not
  * recorded, see notes section 4). Tier C blocks (slime/soul sand/cobweb) are not
  * modelled: slime's 0.8 is read from the dump, but its bounce and entity effects are
- * out of scope until after Gate 2. No jump classifier anywhere: step-up, head bumps and
- * the sneaking edge clamp fall out of the game's own sweep (AGENTS.md).
+ * out of scope until after Gate 2. No jump classifier anywhere: step-up, head bumps,
+ * the sneaking edge clamp and fence/wall/pane shapes fall out of the game's own sweep
+ * and block predicates (AGENTS.md).
  *
  * <p><b>Purity and allocation.</b> {@link #step(State, TraceInput, CollisionWorld)} reads
  * and writes only the caller-owned {@link State} plus the world's query scratch: same
@@ -310,8 +312,9 @@ public final class MovementSim {
 
     /**
      * EntityLivingBase.moveEntityWithHeading, normal ground/air path
-     * (EntityLivingBase.java:1250-1286; notes sections 1.7 and 2.1-2.6). The
-     * ladder/water/lava branches (:1287-1323) belong to task 1.4.
+     * (EntityLivingBase.java:1250-1286; notes sections 1.7, 2.1-2.6 and 2.9). The
+     * ladder/vine clamp and climb impulse are :1265-1278 and :1280-1282; the
+     * water/lava branches (:1287-1323) are not modelled.
      */
     private static void moveEntityWithHeading(State s, float strafe, float forward,
             boolean sneaking, CollisionWorld world) {
@@ -330,11 +333,47 @@ public final class MovementSim {
         if (s.onGround) {
             f4 = world.slipperinessAt(s.x, s.y, s.z) * 0.91f;
         }
+        // :1265-1278: on a ladder/vine, clamp horizontal motion to +/-0.15f (float
+        // widened, MathHelper.clamp_double :132-138), fall distance is reset (not
+        // recorded), downward motion is floored at -0.15 and a sneaking player does not
+        // slide down. isOnLadder() reads the PRE-move feet cell.
+        if (isOnLadder(s, world)) {
+            float f6 = 0.15f;
+            s.vx = clamp(s.vx, -(double) f6, (double) f6);
+            s.vz = clamp(s.vz, -(double) f6, (double) f6);
+            if (s.vy < -0.15) {
+                s.vy = -0.15;
+            }
+            if (sneaking && s.vy < 0.0) {
+                s.vy = 0.0;
+            }
+        }
         moveEntity(s, sneaking, world);                  // :1279, notes section 2.8
+        // :1280-1282: pushing horizontally into the ladder/vine climbs at 0.2 per tick.
+        // The game asks isOnLadder() again here, at the POST-move position.
+        if (s.colH && isOnLadder(s, world)) {
+            s.vy = 0.2;
+        }
         s.vy -= 0.08;                                    // :1283 gravity
         s.vy *= (double) 0.98f;                          // :1284, the widened float 0.9800000190734863
         s.vx *= (double) f4;                             // :1285
         s.vz *= (double) f4;                             // :1286
+    }
+
+    /** EntityLivingBase.isOnLadder (EntityLivingBase.java:878-883), feet cell. */
+    private static boolean isOnLadder(State s, CollisionWorld world) {
+        return world.climbableAt(s.x, s.y, s.z);
+    }
+
+    /** MathHelper.clamp_double (MathHelper.java:132-138). */
+    private static double clamp(double value, double min, double max) {
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
     }
 
     /**

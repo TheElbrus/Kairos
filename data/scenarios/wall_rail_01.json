@@ -1,0 +1,12 @@
+{
+  "name": "wall_rail_01",
+  "start": {"pos": [0.5, 65.0, 1.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 30], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [-1, 65, 5], "to": [2, 65, 5], "id": "cobblestone_wall", "props": {"east": "false", "north": "false", "south": "false", "up": "false", "variant": "cobblestone", "west": "false"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 30, "w": 1, "sprint": 0, "jump": 0}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "vine_climb_01",
+  "start": {"pos": [0.5, 65.0, 3.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-2, 64, -2], "to": [2, 64, 5], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [-2, 64, 6], "to": [2, 72, 6], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [0, 65, 5], "to": [0, 70, 5], "id": "vine", "props": {"east": "false", "north": "false", "south": "true", "up": "false", "west": "false"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 35, "w": 1, "sprint": 0, "jump": 0},
+    {"ticks": 30, "w": 0, "sprint": 0, "jump": 0}
+  ]
+}

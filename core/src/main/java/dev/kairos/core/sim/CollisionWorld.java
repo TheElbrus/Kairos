@@ -34,6 +34,16 @@ import java.util.List;
  * sized to the world's box count - a query can never match more boxes than the world
  * contains. {@link #of} resolves every region up front and fails with a scenario-level
  * message rather than guessing (no hand-typed shapes, AGENTS.md rule 8).
+ *
+ * <p><b>Fences, walls and panes (task 1.4).</b> Their collision boxes depend on the
+ * neighbours, not only on the state, so {@link #of} recomputes them per cell from the
+ * scenario grid: {@code BlockFence.addCollisionBoxesToList} (BlockFence.java:61-94),
+ * {@code BlockWall.setBlockBoundsBasedOnState} + {@code getCollisionBoundingBox}
+ * (BlockWall.java:67-106) and {@code BlockPane.addCollisionBoxesToList}
+ * (BlockPane.java:69-97), with the connection predicates read from the dumped connector
+ * facts (block-level kind/group/cube/pane and the per-state {@code isSideSolid} mask).
+ * Cells outside the placed regions are air, exactly like the probe the lone-block dump
+ * was made with.
  */
 public final class CollisionWorld {
 
@@ -150,11 +160,16 @@ public final class CollisionWorld {
             }
         }
 
+        // Two passes over the same shape writer: count first (dense prefix table), then
+        // fill. Connector shapes are at most two boxes; the dump's own boxes are used for
+        // every other block.
+        double[] shape = new double[12];
         int[] cellStart = new int[cellCount + 1];
         for (int cell = 0; cell < cellCount; cell++) {
             int index = cellState[cell];
-            cellStart[cell + 1] = cellStart[cell]
-                    + (index < 0 ? 0 : states[index].boxes.size());
+            cellStart[cell + 1] = cellStart[cell] + (index < 0 ? 0
+                    : shapeBoxes(states[index], cellState, states, minX, minY, minZ,
+                            sizeX, sizeY, sizeZ, cell, shape));
         }
         int boxCount = cellStart[cellCount];
         double[] boxBounds = new double[boxCount * 6];
@@ -171,20 +186,270 @@ public final class CollisionWorld {
             int x = minX + localX;
             int y = minY + localY;
             int z = minZ + localZ;
-            for (BlockData.Box bounds : states[index].boxes) {
+            int count = shapeBoxes(states[index], cellState, states, minX, minY, minZ,
+                    sizeX, sizeY, sizeZ, cell, shape);
+            for (int s = 0; s < count; s++) {
                 int o = box * 6;
+                int i = s * 6;
                 // Block.getCollisionBoundingBox, Block.java:620-622.
-                boxBounds[o] = (double) x + bounds.minX;
-                boxBounds[o + 1] = (double) y + bounds.minY;
-                boxBounds[o + 2] = (double) z + bounds.minZ;
-                boxBounds[o + 3] = (double) x + bounds.maxX;
-                boxBounds[o + 4] = (double) y + bounds.maxY;
-                boxBounds[o + 5] = (double) z + bounds.maxZ;
+                boxBounds[o] = (double) x + shape[i];
+                boxBounds[o + 1] = (double) y + shape[i + 1];
+                boxBounds[o + 2] = (double) z + shape[i + 2];
+                boxBounds[o + 3] = (double) x + shape[i + 3];
+                boxBounds[o + 4] = (double) y + shape[i + 4];
+                boxBounds[o + 5] = (double) z + shape[i + 5];
                 box++;
             }
         }
         return new CollisionWorld(minX, minY, minZ, sizeX, sizeY, sizeZ, cellState, states,
                 cellStart, boxBounds, boxCount);
+    }
+
+    /**
+     * Writes the cell's collision boxes in block-local coordinates into {@code out}
+     * (6 doubles per box) and returns the count. Non-connector blocks use the dump's
+     * lone-block boxes; fences, walls and panes are recomputed from the neighbours.
+     */
+    private static int shapeBoxes(BlockData.State state, int[] cellState,
+            BlockData.State[] states, int minX, int minY, int minZ, int sizeX, int sizeY,
+            int sizeZ, int cell, double[] out) {
+        String kind = state.connector.kind;
+        if (!"fence".equals(kind) && !"wall".equals(kind) && !"pane".equals(kind)) {
+            int count = state.boxes.size();
+            for (int i = 0; i < count; i++) {
+                BlockData.Box b = state.boxes.get(i);
+                int o = i * 6;
+                out[o] = b.minX;
+                out[o + 1] = b.minY;
+                out[o + 2] = b.minZ;
+                out[o + 3] = b.maxX;
+                out[o + 4] = b.maxY;
+                out[o + 5] = b.maxZ;
+            }
+            return count;
+        }
+
+        int localZ = cell % sizeZ;
+        int rest = cell / sizeZ;
+        int x = minX + rest / sizeY;
+        int y = minY + rest % sizeY;
+        int z = minZ + localZ;
+        BlockData.State north = neighborAt(cellState, states, minX, minY, minZ, sizeX,
+                sizeY, sizeZ, x, y, z - 1);
+        BlockData.State south = neighborAt(cellState, states, minX, minY, minZ, sizeX,
+                sizeY, sizeZ, x, y, z + 1);
+        BlockData.State west = neighborAt(cellState, states, minX, minY, minZ, sizeX,
+                sizeY, sizeZ, x - 1, y, z);
+        BlockData.State east = neighborAt(cellState, states, minX, minY, minZ, sizeX,
+                sizeY, sizeZ, x + 1, y, z);
+
+        if ("fence".equals(kind)) {
+            return fenceBoxes(state, north, south, west, east, out);
+        }
+        if ("wall".equals(kind)) {
+            return wallBoxes(state, north, south, west, east, out);
+        }
+        return paneBoxes(north, south, west, east, out);
+    }
+
+    /**
+     * BlockFence.addCollisionBoxesToList (BlockFence.java:61-94). The north/south arm is
+     * one box (x 0.375..0.625, z extended by the connections, height 1.5); the west/east
+     * arm is the second box (z 0.375..0.625, x extended) and is also the lone-post
+     * fallback when neither north nor south connects.
+     */
+    private static int fenceBoxes(BlockData.State self, BlockData.State north,
+            BlockData.State south, BlockData.State west, BlockData.State east,
+            double[] out) {
+        boolean n = fenceConnects(self, north);          // BlockFence.java:138-141
+        boolean s = fenceConnects(self, south);
+        boolean w = fenceConnects(self, west);
+        boolean e = fenceConnects(self, east);
+        float f = 0.375f;                                // BlockFence.java:142-145
+        float g = 0.625f;
+        float h = 0.375f;
+        float i = 0.625f;
+        if (n) {
+            h = 0.0f;
+        }
+        if (s) {
+            i = 1.0f;
+        }
+        int count = 0;
+        if (n || s) {                                    // BlockFence.java:150-153
+            put(out, count++, f, 0.0f, h, g, 1.5f, i);
+        }
+        h = 0.375f;                                      // BlockFence.java:154-155
+        i = 0.625f;
+        if (w) {
+            f = 0.0f;
+        }
+        if (e) {
+            g = 1.0f;
+        }
+        if (w || e || !n && !s) {                        // BlockFence.java:160-163
+            put(out, count++, f, 0.0f, h, g, 1.5f, i);
+        }
+        return count;
+    }
+
+    /**
+     * BlockWall.setBlockBoundsBasedOnState / getCollisionBoundingBox
+     * (BlockWall.java:67-106): one box, the straight north-south or east-west run narrows
+     * it to 0.3125 and the collision height is forced to 1.5 (BlockWall.java:104).
+     */
+    private static int wallBoxes(BlockData.State self, BlockData.State north,
+            BlockData.State south, BlockData.State west, BlockData.State east,
+            double[] out) {
+        boolean n = wallConnects(self, north);           // BlockWall.java:109-112
+        boolean s = wallConnects(self, south);
+        boolean w = wallConnects(self, west);
+        boolean e = wallConnects(self, east);
+        float f = 0.25f;                                 // BlockWall.java:113-117
+        float g = 0.75f;
+        float h = 0.25f;
+        float i = 0.75f;
+        if (n) {
+            h = 0.0f;
+        }
+        if (s) {
+            i = 1.0f;
+        }
+        if (w) {
+            f = 0.0f;
+        }
+        if (e) {
+            g = 1.0f;
+        }
+        if (n && s && !w && !e) {                        // BlockWall.java:126-129
+            f = 0.3125f;
+            g = 0.6875f;
+        } else if (!n && !s && w && e) {                 // BlockWall.java:130-133
+            h = 0.3125f;
+            i = 0.6875f;
+        }
+        put(out, 0, f, 0.0f, h, g, 1.5f, i);             // BlockWall.java:103-104
+        return 1;
+    }
+
+    /**
+     * BlockPane.addCollisionBoxesToList (BlockPane.java:69-97): an x-axis plate
+     * (z 0.4375..0.5625) and a z-axis plate (x 0.4375..0.5625), each a half plate when
+     * exactly one horizontal side connects and no perpendicular plate is needed.
+     */
+    private static int paneBoxes(BlockData.State north, BlockData.State south,
+            BlockData.State west, BlockData.State east, double[] out) {
+        // BlockPane.canPaneConnectTo (BlockPane.java:162-166): the neighbour's pane group
+        // or its isSideSolid face pointing back at us.
+        boolean n = paneConnects(north, 3);              // our north -> its SOUTH face
+        boolean s = paneConnects(south, 2);              // our south -> its NORTH face
+        boolean w = paneConnects(west, 5);               // our west -> its EAST face
+        boolean e = paneConnects(east, 4);               // our east -> its WEST face
+        int count = 0;
+        if ((!w || !e) && (w || e || n || s)) {          // BlockPane.java:74-84
+            if (w) {
+                put(out, count++, 0.0f, 0.0f, 0.4375f, 0.5f, 1.0f, 0.5625f);
+            } else if (e) {
+                put(out, count++, 0.5f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f);
+            }
+        } else {                                         // BlockPane.java:85-87
+            put(out, count++, 0.0f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f);
+        }
+        if ((!n || !s) && (w || e || n || s)) {          // BlockPane.java:88-97
+            if (n) {
+                put(out, count++, 0.4375f, 0.0f, 0.0f, 0.5625f, 1.0f, 0.5f);
+            } else if (s) {
+                put(out, count++, 0.4375f, 0.0f, 0.5f, 0.5625f, 1.0f, 1.0f);
+            }
+        } else {
+            put(out, count++, 0.4375f, 0.0f, 0.0f, 0.5625f, 1.0f, 1.0f);
+        }
+        return count;
+    }
+
+    /**
+     * BlockFence.canConnectTo (BlockFence.java:137-149): barrier is never a connection
+     * (already folded out of {@code connector.cube}), a fence of the same Material
+     * connects, a gate connects, and an opaque full cube that is not a gourd connects.
+     */
+    private static boolean fenceConnects(BlockData.State self, BlockData.State neighbour) {
+        if (neighbour == null) {
+            return false;
+        }
+        String kind = neighbour.connector.kind;
+        if ("fence".equals(kind)) {
+            return self.connector.group.equals(neighbour.connector.group);
+        }
+        if ("gate".equals(kind)) {
+            return true;
+        }
+        return neighbour.connector.cube;
+    }
+
+    /**
+     * BlockWall.canConnectTo (BlockWall.java:108-120): the same wall Block instance (the
+     * same dump name), any gate, or an opaque full cube that is not a gourd.
+     */
+    private static boolean wallConnects(BlockData.State self, BlockData.State neighbour) {
+        if (neighbour == null) {
+            return false;
+        }
+        String kind = neighbour.connector.kind;
+        if ("wall".equals(kind)) {
+            return self.connector.group.equals(neighbour.connector.group);
+        }
+        if ("gate".equals(kind)) {
+            return true;
+        }
+        return neighbour.connector.cube;
+    }
+
+    /** BlockPane.canPaneConnectTo: pane group or isSideSolid of the face toward us. */
+    private static boolean paneConnects(BlockData.State neighbour, int faceBit) {
+        return neighbour != null && (neighbour.connector.pane
+                || (neighbour.solidSides & (1 << faceBit)) != 0);
+    }
+
+    private static void put(double[] out, int box, float minX, float minY, float minZ,
+            float maxX, float maxY, float maxZ) {
+        int o = box * 6;
+        out[o] = minX;
+        out[o + 1] = minY;
+        out[o + 2] = minZ;
+        out[o + 3] = maxX;
+        out[o + 4] = maxY;
+        out[o + 5] = maxZ;
+    }
+
+    /** The state at a cell, or {@code null} for unassigned cells and outside the grid. */
+    private static BlockData.State neighborAt(int[] cellState, BlockData.State[] states,
+            int minX, int minY, int minZ, int sizeX, int sizeY, int sizeZ,
+            int x, int y, int z) {
+        if (x < minX || x >= minX + sizeX || y < minY || y >= minY + sizeY
+                || z < minZ || z >= minZ + sizeZ) {
+            return null;
+        }
+        int index = cellState[cellIndex(minX, minY, minZ, sizeY, sizeZ, x, y, z)];
+        return index < 0 ? null : states[index];
+    }
+
+    /**
+     * {@code EntityLivingBase.isOnLadder} (EntityLivingBase.java:878-883): the block at
+     * the FEET cell {@code floor(posX), floor(box.minY), floor(posZ)} -- no "- 1" here,
+     * unlike the slipperiness lookup. Outside the grid and unassigned cells are air,
+     * which is never climbable. O(1), no allocation.
+     */
+    public boolean climbableAt(double posX, double feetY, double posZ) {
+        int x = floor(posX);
+        int y = floor(feetY);
+        int z = floor(posZ);
+        if (x < this.minX || x >= this.minX + this.sizeX
+                || y < this.minY || y >= this.minY + this.sizeY
+                || z < this.minZ || z >= this.minZ + this.sizeZ) {
+            return false;
+        }
+        int index = this.cellState[cellIndex(x, y, z)];
+        return index >= 0 && this.states[index].climbable;
     }
 
     /**
@@ -298,6 +563,11 @@ public final class CollisionWorld {
     /** Box index of hit {@code hit} of the last {@link #query}. */
     public int queryBox(int hit) {
         return this.queryHits[hit];
+    }
+
+    /** Writes box {@code box}'s world bounds (minX,minY,minZ,maxX,maxY,maxZ) into out. */
+    public void boxBounds(int box, double[] out) {
+        System.arraycopy(this.boxBounds, box * 6, out, 0, 6);
     }
 
     /**

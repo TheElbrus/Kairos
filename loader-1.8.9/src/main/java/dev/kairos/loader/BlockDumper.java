@@ -1,6 +1,11 @@
 package dev.kairos.loader;
 
 import net.minecraft.block.Block; // mc-src/net/minecraft/block/Block.java
+import net.minecraft.block.BlockFence; // mc-src/net/minecraft/block/BlockFence.java
+import net.minecraft.block.BlockFenceGate; // mc-src/net/minecraft/block/BlockFenceGate.java
+import net.minecraft.block.BlockPane; // mc-src/net/minecraft/block/BlockPane.java
+import net.minecraft.block.BlockWall; // mc-src/net/minecraft/block/BlockWall.java
+import net.minecraft.block.material.Material; // mc-src/net/minecraft/block/material/Material.java
 import net.minecraft.block.properties.IProperty; // mc-src/net/minecraft/block/properties/IProperty.java
 import net.minecraft.block.state.IBlockState; // mc-src/net/minecraft/block/state/IBlockState.java
 import net.minecraft.client.Minecraft; // mc-src/net/minecraft/client/Minecraft.java
@@ -11,6 +16,7 @@ import net.minecraft.util.AxisAlignedBB; // mc-src/net/minecraft/util/AxisAligne
 import net.minecraft.util.BlockPos; // mc-src/net/minecraft/util/BlockPos.java
 import net.minecraft.util.ChatComponentText; // mc-src/net/minecraft/util/ChatComponentText.java
 import net.minecraft.util.EnumChatFormatting; // mc-src/net/minecraft/util/EnumChatFormatting.java
+import net.minecraft.util.EnumFacing; // mc-src/net/minecraft/util/EnumFacing.java
 import net.minecraft.util.ResourceLocation; // mc-src/net/minecraft/util/ResourceLocation.java
 import net.minecraft.world.World; // mc-src/net/minecraft/world/World.java
 import net.minecraft.world.WorldProviderSurface; // mc-src/net/minecraft/world/WorldProviderSurface.java
@@ -31,6 +37,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -84,20 +91,28 @@ import java.util.TreeMap;
  * piston moves, so its static value is meaningless anyway. No block is skipped and no
  * state is special-cased.
  *
- * <p><b>Output format (schema 1).</b> UTF-8, LF only, keys and states sorted, numbers
+ * <p><b>Output format (schema 2).</b> UTF-8, LF only, keys and states sorted, numbers
  * formatted with {@code Double.toString}/{@code Float.toString} (locale-independent, same
  * precedent as {@code core}'s TraceWriter). One JSON object per line for block states:
  * <pre>
- * {"schema":1,"mc":"1.8.9","generator":...,"about":...,"counts":{"blocks":N,"states":M},
- *  "blocks":[{"name":"minecraft:acacia_door","states":[
- *    {"props":{"facing":"east","half":"lower","open":"false","powered":"false"},
- *     "boxes":[...],"slipperiness":0.6,"climbable":false}, ... ]}, ... ]}
+ * {"schema":2,"mc":"1.8.9","generator":...,"about":...,"counts":{"blocks":N,"states":M},
+ *  "blocks":[{"name":"minecraft:acacia_door",
+ *    "connector":{"cube":false,"pane":false},
+ *    "states":[
+ *      {"props":{"facing":"east","half":"lower","open":"false","powered":"false"},
+ *       "boxes":[...],"slipperiness":0.6,"climbable":false,"solid":0}, ... ]}, ... ]}
  * </pre>
  * {@code boxes} are {@code [minX,minY,minZ,maxX,maxY,maxZ]} relative to the block
- * origin. A dumper-side cross-check (registry state sum vs serialized states) aborts
- * with a red chat error and writes nothing on mismatch. On success it prints one gray
- * line with the SHA-256 of the exact bytes; running the command twice must produce the
- * same hash.
+ * origin. Schema 2 (task 1.4) adds the generated connector facts: {@code connector} is
+ * block-level and holds {@code kind} ("fence"/"wall"/"pane"/"gate", absent otherwise),
+ * {@code group} (same-{@code Material} fence group / the wall block itself),
+ * {@code cube} ({@code material.isOpaque() && isFullCube() && material != gourd}, the
+ * non-fence/wall {@code canConnectTo} clause) and {@code pane}
+ * ({@code BlockPane.canPaneConnectToBlock}); {@code solid} is the state's
+ * {@code Block.isSideSolid} mask, bit {@code EnumFacing.ordinal()}. A dumper-side
+ * cross-check (registry state sum vs serialized states) aborts with a red chat error and
+ * writes nothing on mismatch. On success it prints one gray line with the SHA-256 of the
+ * exact bytes; running the command twice must produce the same hash.
  */
 public final class BlockDumper {
 
@@ -115,11 +130,14 @@ public final class BlockDumper {
     private static final AxisAlignedBB MASK = new AxisAlignedBB(-2.0, -2.0, -2.0, 3.0, 3.0, 3.0);
 
     private static final String ABOUT =
-            "schema 1: one entry per registry block (sorted by name), one line per valid block state"
+            "schema 2: one entry per registry block (sorted by name), one line per valid block state"
             + " (sorted by properties); props = state property values; boxes = entity-vs-block collision"
             + " boxes for this state in isolation (air neighbours, no entity), relative to the block"
             + " origin, [minX,minY,minZ,maxX,maxY,maxZ]; slipperiness = Block.slipperiness as a raw"
-            + " float; climbable = Block.isLadder. File is UTF-8 with LF line endings.";
+            + " float; climbable = Block.isLadder; solid = Block.isSideSolid mask, bit"
+            + " EnumFacing.ordinal() (DOWN,UP,NORTH,SOUTH,WEST,EAST); connector = generated connection"
+            + " facts (kind fence/wall/pane/gate, group, cube = opaque+isFullCube+not gourd, pane ="
+            + " canPaneConnectToBlock). File is UTF-8 with LF line endings.";
 
     /** {@code /kairos dumpblocks}. Writes {@code run/kairos/blocks.json} or a red chat error. */
     public void dump(ICommandSender sender) {
@@ -177,6 +195,18 @@ public final class BlockDumper {
             }
         });
 
+        // Fence groups are Material identities (BlockFence.canConnectTo: blockMaterial ==
+        // this.blockMaterial, BlockFence.java:142). Name each group by the first fence
+        // block of that material in sorted order, so the dump is deterministic and the
+        // string carries no identity hash.
+        Map<Material, String> fenceGroups = new IdentityHashMap<Material, String>();
+        for (ResourceLocation name : names) {
+            Block block = Block.blockRegistry.getObject(name);
+            if (block instanceof BlockFence && !fenceGroups.containsKey(block.getMaterial())) {
+                fenceGroups.put(block.getMaterial(), name.toString());
+            }
+        }
+
         StringBuilder blocks = new StringBuilder(1 << 19);
         int blockCount = 0;
         int stateCount = 0;
@@ -216,7 +246,9 @@ public final class BlockDumper {
                 blocks.append(",\n");
             }
             blocks.append("  {\"name\": \"").append(escape(name.toString()))
-                    .append("\", \"states\": [\n");
+                    .append("\", \"connector\": ")
+                    .append(connectorJson(connector(block, name, fenceGroups)))
+                    .append(", \"states\": [\n");
             int i = 0;
             for (String line : stateLines.values()) {
                 blocks.append("    ").append(line);
@@ -238,8 +270,8 @@ public final class BlockDumper {
         }
 
         StringBuilder json = new StringBuilder(blocks.length() + 512);
-        json.append("{\"schema\": 1, \"mc\": \"1.8.9\",")
-                .append(" \"generator\": \"Kairos BlockDumper (loader-1.8.9, task 1.0)\",")
+        json.append("{\"schema\": 2, \"mc\": \"1.8.9\",")
+                .append(" \"generator\": \"Kairos BlockDumper (loader-1.8.9, task 1.4)\",")
                 .append(" \"about\": \"").append(escape(ABOUT)).append("\",")
                 .append(" \"counts\": {\"blocks\": ").append(blockCount)
                 .append(", \"states\": ").append(stateCount).append("},")
@@ -247,6 +279,51 @@ public final class BlockDumper {
                 .append(blocks)
                 .append("\n]}\n");
         return new Dump(json.toString(), blockCount, stateCount);
+    }
+
+    /**
+     * The block-level connection facts, generated with the game's own predicates
+     * (BlockFence.java:137-149, BlockWall.java:108-120, BlockPane.java:137-139): the
+     * surfaces that decide what a fence/wall/pane connects to in the world.
+     */
+    private static Connector connector(Block block, ResourceLocation name,
+            Map<Material, String> fenceGroups) {
+        Material material = block.getMaterial(); // Block.java:409
+        Connector facts = new Connector();
+        // BlockFence.canConnectTo (BlockFence.java:137-149) / BlockWall.canConnectTo
+        // (BlockWall.java:108-120): barrier first, then the opaque-full-non-gourd clause.
+        facts.cube = block != Blocks.barrier // BlockFence.java:139-141
+                && material.isOpaque() && block.isFullCube() && material != Material.gourd;
+        // BlockPane.canPaneConnectToBlock (BlockPane.java:137-139).
+        facts.pane = block.isFullBlock() // Block.java:379
+                || block == Blocks.glass || block == Blocks.stained_glass
+                || block == Blocks.stained_glass_pane || block instanceof BlockPane;
+        if (block instanceof BlockFence) {
+            facts.kind = "fence";
+            facts.group = fenceGroups.get(material); // same Material == same group
+        } else if (block instanceof BlockWall) {
+            facts.kind = "wall";
+            facts.group = name.toString(); // BlockWall.canConnectTo: block == this
+        } else if (block instanceof BlockPane) {
+            facts.kind = "pane";
+        } else if (block instanceof BlockFenceGate) {
+            facts.kind = "gate";
+        }
+        return facts;
+    }
+
+    private static String connectorJson(Connector facts) {
+        StringBuilder sb = new StringBuilder(96);
+        sb.append('{');
+        if (facts.kind != null) {
+            sb.append("\"kind\": \"").append(facts.kind).append("\", ");
+        }
+        if (facts.group != null) {
+            sb.append("\"group\": \"").append(escape(facts.group)).append("\", ");
+        }
+        sb.append("\"cube\": ").append(facts.cube)
+                .append(", \"pane\": ").append(facts.pane).append('}');
+        return sb.toString();
     }
 
     /** One state JSON object, boxes included. */
@@ -261,6 +338,17 @@ public final class BlockDumper {
         block.setBlockBoundsBasedOnState(probe, ORIGIN);                    // Block.java:918
         List<AxisAlignedBB> boxes = new ArrayList<AxisAlignedBB>(4);
         block.addCollisionBoxesToList(probe, ORIGIN, state, MASK, boxes, null); // Block.java:613
+
+        // The pane connection predicate asks the NEIGHBOUR's isSideSolid for the face
+        // pointing back (BlockPane.java:162-166); it is state-dependent (slab/stairs/snow/
+        // hopper/...), so it is dumped per state. getActualState inside reads the probe,
+        // whose only non-air block is this state at the origin.
+        int solid = 0;
+        for (EnumFacing side : EnumFacing.values()) {       // DOWN,UP,NORTH,SOUTH,WEST,EAST
+            if (block.isSideSolid(probe, ORIGIN, side)) {   // Block.java:1262
+                solid |= 1 << side.ordinal();
+            }
+        }
 
         StringBuilder sb = new StringBuilder(160);
         sb.append("{\"props\": {");
@@ -288,6 +376,7 @@ public final class BlockDumper {
                 // isLadder(IBlockAccess, BlockPos, EntityLivingBase): Block.java:1250,
                 // BlockLadder.java:137, BlockVine.java:366 (all ignore the entity).
                 .append(", \"climbable\": ").append(block.isLadder(probe, ORIGIN, null))
+                .append(", \"solid\": ").append(solid)
                 .append('}');
         return sb.toString();
     }
@@ -371,6 +460,14 @@ public final class BlockDumper {
             this.blocks = blocks;
             this.states = states;
         }
+    }
+
+    /** Mutable carrier while the block-level connector facts are generated. */
+    private static final class Connector {
+        String kind;
+        String group;
+        boolean cube;
+        boolean pane;
     }
 
     /**

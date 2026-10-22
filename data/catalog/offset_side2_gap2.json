@@ -1,0 +1,1 @@
+{"id":"offset_side2_gap2","start":{"block":[0,64,0],"runup":[0,1,2,3]},"goal":{"block":[2,64,3]},"expect":"feasible","label_source":"wiki","tags":["offset","gap","flat","sprint"]}

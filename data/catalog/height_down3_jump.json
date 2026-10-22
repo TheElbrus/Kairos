@@ -1,0 +1,1 @@
+{"id":"height_down3_jump","start":{"block":[0,67,0],"runup":[0,1,2,3]},"goal":{"block":[0,64,2]},"expect":"feasible","label_source":"construction","tags":["height","drop","gap"]}

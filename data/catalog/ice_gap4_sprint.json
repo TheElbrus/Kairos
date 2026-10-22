@@ -1,0 +1,1 @@
+{"id":"ice_gap4_sprint","start":{"block":[0,64,0],"runup":[0,1,2,3,4,5]},"goal":{"block":[0,64,5]},"expect":"feasible","label_source":"wiki","tags":["ice","gap","flat","sprint","momentum"]}

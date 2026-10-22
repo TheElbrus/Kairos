@@ -1,0 +1,1 @@
+{"id":"ladder_climb4","start":{"block":[0,64,0],"runup":[]},"goal":{"block":[0,68,0]},"expect":"feasible","label_source":"construction","tags":["ladder","climb"]}

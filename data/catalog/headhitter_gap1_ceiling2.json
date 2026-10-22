@@ -1,0 +1,1 @@
+{"id":"headhitter_gap1_ceiling2","start":{"block":[0,64,0],"runup":[0,1,2,3]},"goal":{"block":[0,64,2]},"expect":"infeasible","label_source":"envelope","tags":["headhitter","gap","flat","ceiling2"]}

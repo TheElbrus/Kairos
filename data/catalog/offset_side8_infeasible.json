@@ -1,0 +1,1 @@
+{"id":"offset_side8_infeasible","start":{"block":[0,64,0],"runup":[0,1,2,3]},"goal":{"block":[8,64,1]},"expect":"infeasible","label_source":"envelope","tags":["offset","gap"]}

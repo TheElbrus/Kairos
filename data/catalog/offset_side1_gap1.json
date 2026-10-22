@@ -1,0 +1,1 @@
+{"id":"offset_side1_gap1","start":{"block":[0,64,0],"runup":[0,1,2,3]},"goal":{"block":[1,64,2]},"expect":"feasible","label_source":"construction","tags":["offset","gap","flat"]}

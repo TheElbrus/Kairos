@@ -1,0 +1,1 @@
+{"id":"height_up2_wall","start":{"block":[0,64,0],"runup":[0,1,2,3]},"goal":{"block":[0,66,1]},"expect":"infeasible","label_source":"envelope","tags":["height","wall"]}

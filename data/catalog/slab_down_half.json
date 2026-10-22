@@ -1,0 +1,1 @@
+{"id":"slab_down_half","start":{"block":[0,65,0],"runup":[0,1,2,3]},"goal":{"block":[0,64,2]},"expect":"feasible","label_source":"construction","tags":["slab","drop","gap"]}

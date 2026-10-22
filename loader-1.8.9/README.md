@@ -69,7 +69,9 @@ writes one JSONL trace line per client tick (format frozen in `../docs/adr/0010-
 state with its collision boxes, slipperiness and climbable flag, the generated connector
 facts (`connector` kind/group/cube/pane) and the per-state `solid` mask of
 `Block.isSideSolid`, deterministic (LF-only; two consecutive runs print the same SHA-256).
-Scenario runs (`/kairos scenario run|runmany`) are task 0.5.
+Scenario runs (`/kairos scenario run|runmany`) are task 0.5. The fuzz corpus and batch
+harness are task 1.7.1 (`/kairos scenario fuzz`); recording the full 1000-scenario fuzz
+set is task 1.7.2.
 See `../docs/STATUS.md` and `../docs/JOURNAL.md`.
 
 Recording a trace in the dev client:
@@ -79,6 +81,26 @@ Recording a trace in the dev client:
 ... play ...
 /kairos record stop            # gray "stopped ... after N ticks"; red line means the gap guard fired
 ```
+
+Building a scenario and recording it:
+
+```
+/kairos scenario run test1            # builds data/scenarios/test1.json, records test1.jsonl
+/kairos scenario runmany test1 3      # records test1_run01..03.jsonl; refuses unless all 3 are byte-identical
+```
+
+Fuzzing (task 1.7.1 harness; the corpus is `data/fuzz/scenarios.jsonl`, 1000 deterministic
+scenarios, 100 ticks each):
+
+```
+/kairos scenario fuzz 3               # records fuzz_0000..fuzz_0002, one trace each
+/kairos scenario fuzz 1000 resume     # continue after the last existing fuzz_NNNN trace
+```
+
+`fuzz` parses and resolves every requested scenario before touching the world, refuses to
+overwrite an existing `<scenario>.jsonl` unless `resume` is given, and aborts with the
+scenario name/index on the first failure (already recorded traces stay on disk). This is a
+development tool: the corpus and harness are committed, the fuzz traces are not.
 
 Dumping the block registry:
 

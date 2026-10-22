@@ -3,6 +3,7 @@ package dev.kairos.loader;
 // Every Minecraft API used here is cited from the decompiled source in mc-src/ (MCP
 // `stable_22`), as AGENTS.md requires. mc-src/ is gitignored and never committed.
 
+import dev.kairos.core.fuzz.FuzzScenarios;
 import dev.kairos.core.scenario.Scenario;
 import dev.kairos.core.scenario.ScenarioBlock;
 import dev.kairos.core.scenario.ScenarioInput;
@@ -38,6 +39,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -84,6 +86,9 @@ public final class KairosScenarioRunner {
     /** How close the client position must be to the requested one, in blocks. */
     private static final double POS_EPSILON = 1.0E-6;
 
+    /** Fuzz records a single trace per corpus line; progress prints every N scenarios. */
+    private static final int FUZZ_PROGRESS_EVERY = 25;
+
     private enum Phase {
         IDLE, TELEPORT, BUILD, TELEPORT2, SETTLE, RECORD
     }
@@ -121,6 +126,17 @@ public final class KairosScenarioRunner {
     private ScenarioMovementInput scriptedInput;
     private KeyBinding originalSprintKey;
     private final ScriptedSprintKey scriptedSprintKey = new ScriptedSprintKey();
+
+    /**
+     * Fuzz batch state (task 1.7.1). The corpus is read and every scenario/state is
+     * resolved before the first world edit; {@code fuzzNext} is the 0-based index of the
+     * scenario being (or about to be) recorded, {@code fuzzTotal} the batch size.
+     */
+    private boolean fuzzMode;
+    private List<Scenario> fuzzScenarios;
+    private IBlockState[][] fuzzStates;
+    private int fuzzNext;
+    private int fuzzTotal;
 
     public KairosScenarioRunner(KairosRecorder recorder) {
         this.recorder = recorder;
@@ -186,12 +202,127 @@ public final class KairosScenarioRunner {
         beginRun(sender);
     }
 
+    /**
+     * {@code /kairos scenario fuzz <count> [resume]} (task 1.7.1): records the first
+     * {@code count} committed corpus scenarios, one trace named exactly like the scenario
+     * ({@code fuzz_NNNN.jsonl}), sequentially, with the same build/teleport/settle/record
+     * lifecycle as {@link #run(String, int, ICommandSender)}.
+     *
+     * <p>All parsing and state resolution happens here, before any world edit: a bad
+     * corpus line fails with its scenario name and no block is placed. Without
+     * {@code resume} an existing expected trace refuses the whole batch; with
+     * {@code resume} a leading run of existing traces is skipped and recording continues
+     * at the first missing one (a trace after a gap is refused, never overwritten).
+     */
+    public void runFuzz(int count, boolean resume, ICommandSender sender) {
+        if (isBusy()) {
+            chat(sender, "a run is already in progress");
+            return;
+        }
+        if (count < 1) {
+            chatRed(sender, "fuzz count must be >= 1");
+            return;
+        }
+        if (this.recorder.isRecording()) {
+            chatRed(sender, "a manual recording is active; /kairos record stop it first");
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || mc.theWorld == null || mc.getIntegratedServer() == null) {
+            chatRed(sender, "fuzz needs a loaded singleplayer world");
+            return;
+        }
+
+        List<String> lines;
+        try {
+            lines = FuzzScenarios.lines(mc.mcDataDir);
+        } catch (IOException e) {
+            chatRed(sender, "fuzz corpus unavailable: " + e.getMessage());
+            return;
+        }
+        int total = Math.min(count, lines.size());
+
+        Scenario[] scenarios = new Scenario[total];
+        IBlockState[][] states = new IBlockState[total][];
+        String[] names = new String[total];
+        for (int i = 0; i < total; i++) {
+            try {
+                Scenario parsed = ScenarioParser.parse(lines.get(i));
+                states[i] = resolveRegionStates(parsed);
+                scenarios[i] = parsed;
+                names[i] = parsed.name;
+            } catch (IllegalArgumentException e) {
+                chatRed(sender, "fuzz scenario " + (i + 1) + "/" + total + " in "
+                        + FuzzScenarios.RELATIVE_PATH + " is invalid: " + e.getMessage());
+                return;
+            }
+        }
+
+        File dir = tracesDir(mc);
+        int firstExisting = -1;
+        for (int i = 0; i < total; i++) {
+            if (new File(dir, names[i] + ".jsonl").isFile()) {
+                firstExisting = i;
+                break;
+            }
+        }
+        if (!resume && firstExisting >= 0) {
+            chatRed(sender, "fuzz refused: " + new File(dir, names[firstExisting] + ".jsonl").getPath()
+                    + " already exists; delete it or rerun with 'resume'");
+            return;
+        }
+        int skipped = 0;
+        if (resume) {
+            while (skipped < total && new File(dir, names[skipped] + ".jsonl").isFile()) {
+                skipped++;
+            }
+            if (skipped == total) {
+                chat(sender, "all " + total + " fuzz traces already exist; nothing to record");
+                return;
+            }
+            for (int i = skipped; i < total; i++) {
+                if (new File(dir, names[i] + ".jsonl").isFile()) {
+                    chatRed(sender, "fuzz resume refused: "
+                            + new File(dir, names[i] + ".jsonl").getPath()
+                            + " exists after the first missing trace");
+                    return;
+                }
+            }
+        }
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            chatRed(sender, "fuzz could not create " + dir.getPath());
+            return;
+        }
+
+        this.fuzzMode = true;
+        this.fuzzScenarios = Arrays.asList(scenarios);
+        this.fuzzStates = states;
+        this.fuzzNext = skipped;
+        this.fuzzTotal = total;
+        this.runsTotal = 0;
+        this.runIndex = 0;
+
+        chat(sender, "fuzz: " + total + " scenarios from " + FuzzScenarios.RELATIVE_PATH
+                + (resume ? " (resume)" : ""));
+        if (skipped > 0) {
+            chat(sender, "fuzz resume: skipping " + skipped + " existing trace(s)");
+        }
+        loadFuzzScenario();
+        beginRun(sender);
+    }
+
+    /** Makes the scenario at {@code fuzzNext} the current one (states already resolved). */
+    private void loadFuzzScenario() {
+        this.scenario = this.fuzzScenarios.get(this.fuzzNext);
+        this.regionStates = this.fuzzStates[this.fuzzNext];
+    }
+
     private void beginRun(ICommandSender sender) {
         this.runGeneration++;
         this.savedStates = null;
         this.savedCoords = null;
-        this.traceName = this.runsTotal > 1 ? runFileBase(this.scenario.name, this.runIndex)
-                : this.scenario.name;
+        this.traceName = !this.fuzzMode && this.runsTotal > 1
+                ? runFileBase(this.scenario.name, this.runIndex) : this.scenario.name;
         this.waitTicks = 0;
         this.settleCounter = 0;
         this.recordTick = 0;
@@ -211,8 +342,10 @@ public final class KairosScenarioRunner {
         resetPlayerState(mc);
         teleportToStart(mc);
         this.phase = Phase.TELEPORT;
-        chat(sender, (this.runsTotal > 1 ? ("run " + (this.runIndex + 1) + "/" + this.runsTotal + ": ") : "")
-                + "placing the player for '" + this.scenario.name + "'");
+        if (!this.fuzzMode) {
+            chat(sender, (this.runsTotal > 1 ? ("run " + (this.runIndex + 1) + "/" + this.runsTotal + ": ") : "")
+                    + "placing the player for '" + this.scenario.name + "'");
+        }
     }
 
     // --- tick handlers --------------------------------------------------------------
@@ -291,9 +424,9 @@ public final class KairosScenarioRunner {
                     // this tick. This handler runs at HIGHEST priority (see the class
                     // comment), so recorder.start() is called before KairosRecorder's own
                     // START handler writes the tick:-1 anchor later in this dispatch.
-                    // File name carries the run index (traceName); every run stamps the
-                    // SAME base scenario label, so the scenario field never differs
-                    // between runs (ADR 0010).
+                    // traceName carries the run index for runmany and is the scenario name
+                    // otherwise (single run and fuzz); every run stamps the SAME base
+                    // scenario label, so the scenario field never differs (ADR 0010).
                     this.recorder.start(this.traceName, this.scenario.name, null);
                     if (!this.recorder.isRecording()) {
                         // start() refused (bad name or the file already exists): do not run
@@ -360,6 +493,26 @@ public final class KairosScenarioRunner {
         Minecraft mc = Minecraft.getMinecraft();
         restoreMovementInput(mc);
         scheduleRestore(mc);
+
+        if (this.fuzzMode) {
+            this.fuzzNext++;
+            if (this.fuzzNext < this.fuzzTotal) {
+                if (this.fuzzNext % FUZZ_PROGRESS_EVERY == 0) {
+                    chat(null, "fuzz progress: " + this.fuzzNext + "/" + this.fuzzTotal
+                            + " traces");
+                }
+                loadFuzzScenario();
+                beginRun(null);
+                return;
+            }
+            chat(null, "fuzz progress: " + this.fuzzNext + "/" + this.fuzzTotal + " traces");
+            chat(null, "fuzz done: " + this.fuzzTotal + "/" + this.fuzzTotal + " traces -> "
+                    + tracesDir(mc).getPath());
+            this.phase = Phase.IDLE;
+            clearFuzz();
+            return;
+        }
+
         chat(null, "run " + (this.runIndex + 1) + "/" + this.runsTotal + " done: "
                 + this.scenario.totalInputTicks() + " ticks -> " + this.traceName + ".jsonl");
 
@@ -402,8 +555,23 @@ public final class KairosScenarioRunner {
         }
         restoreMovementInput(mc);
         scheduleRestore(mc);
-        chatRed(null, "scenario aborted: " + why);
+        if (this.fuzzMode) {
+            chatRed(null, "fuzz aborted at " + this.scenario.name + " (" + (this.fuzzNext + 1)
+                    + "/" + this.fuzzTotal + "): " + why);
+        } else {
+            chatRed(null, "scenario aborted: " + why);
+        }
         this.phase = Phase.IDLE;
+        clearFuzz();
+    }
+
+    /** Drops the fuzz batch bookkeeping; a completed or aborted batch leaves no mode on. */
+    private void clearFuzz() {
+        this.fuzzMode = false;
+        this.fuzzScenarios = null;
+        this.fuzzStates = null;
+        this.fuzzNext = 0;
+        this.fuzzTotal = 0;
     }
 
     private boolean timedOut() {

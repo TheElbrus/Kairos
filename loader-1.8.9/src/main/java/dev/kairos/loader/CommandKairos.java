@@ -1,5 +1,7 @@
 package dev.kairos.loader;
 
+import dev.kairos.core.fuzz.FuzzScenarios;
+
 import net.minecraft.command.CommandBase; // mc-src/net/minecraft/command/CommandBase.java
 import net.minecraft.command.ICommandSender; // mc-src/net/minecraft/command/ICommandSender.java
 import net.minecraft.util.ChatComponentText; // mc-src/net/minecraft/util/ChatComponentText.java
@@ -7,7 +9,8 @@ import net.minecraft.util.EnumChatFormatting; // mc-src/net/minecraft/util/EnumC
 
 /**
  * {@code /kairos record start <name> | stop | status} (task 0.4),
- * {@code /kairos scenario run <name> | runmany <name> <n>} (task 0.5) and
+ * {@code /kairos scenario run <name> | runmany <name> <n>} (task 0.5),
+ * {@code /kairos scenario fuzz <count> [resume]} (task 1.7.1) and
  * {@code /kairos dumpblocks} (task 1.0).
  *
  * <p>Client-side only, registered on {@code ClientCommandHandler}. That makes it work in
@@ -27,7 +30,7 @@ public final class CommandKairos extends CommandBase {
     static final String USAGE =
             "/kairos record start <name>  |  /kairos record stop  |  /kairos record status"
             + "  |  /kairos scenario run <name>  |  /kairos scenario runmany <name> <n>"
-            + "  |  /kairos dumpblocks";
+            + "  |  /kairos scenario fuzz <count> [resume]  |  /kairos dumpblocks";
 
     private final KairosRecorder recorder;
     private final KairosScenarioRunner scenarioRunner;
@@ -112,6 +115,35 @@ public final class CommandKairos extends CommandBase {
                 return;
             }
             this.scenarioRunner.run(args[2], runs, sender);
+        } else if ("fuzz".equals(args[1])) {
+            if (args.length < 3) {
+                usage(sender);
+                return;
+            }
+            int count;
+            try {
+                count = Integer.parseInt(args[2]);
+            } catch (NumberFormatException e) {
+                error(sender, "fuzz count must be a number 1.." + FuzzScenarios.EXPECTED_COUNT);
+                return;
+            }
+            if (count < 1 || count > FuzzScenarios.EXPECTED_COUNT) {
+                error(sender, "fuzz count must be a number 1.." + FuzzScenarios.EXPECTED_COUNT);
+                return;
+            }
+            boolean resume = false;
+            if (args.length >= 4) {
+                if (!"resume".equals(args[3])) {
+                    error(sender, "unknown fuzz option '" + args[3] + "' (only 'resume')");
+                    return;
+                }
+                resume = true;
+            }
+            if (args.length > 4) {
+                usage(sender);
+                return;
+            }
+            this.scenarioRunner.runFuzz(count, resume, sender);
         } else {
             usage(sender);
         }

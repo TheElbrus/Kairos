@@ -44,12 +44,21 @@ public final class CollisionWorld {
      */
     private static final int MAX_CELLS = 1 << 21;
 
+    /** Block's field default (Block.java:321): stone and air are 0.6f. */
+    private static final float DEFAULT_SLIPPERINESS = 0.6f;
+
     private final int minX;
     private final int minY;
     private final int minZ;
     private final int sizeX;
     private final int sizeY;
     private final int sizeZ;
+
+    /** State index of cell {@code c}; -1 when the cell is unassigned (air). */
+    private final int[] cellState;
+
+    /** The resolved region states, indexed by the values in {@link #cellState}. */
+    private final BlockData.State[] states;
 
     /** Box index range of cell {@code c} is {@code [cellStart[c], cellStart[c + 1])}. */
     private final int[] cellStart;
@@ -62,13 +71,16 @@ public final class CollisionWorld {
     private int queryHitCount;
 
     private CollisionWorld(int minX, int minY, int minZ, int sizeX, int sizeY, int sizeZ,
-            int[] cellStart, double[] boxBounds, int boxCount) {
+            int[] cellState, BlockData.State[] states, int[] cellStart, double[] boxBounds,
+            int boxCount) {
         this.minX = minX;
         this.minY = minY;
         this.minZ = minZ;
         this.sizeX = sizeX;
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
+        this.cellState = cellState;
+        this.states = states;
         this.cellStart = cellStart;
         this.boxBounds = boxBounds;
         this.queryHits = new int[Math.max(1, boxCount)];
@@ -171,8 +183,34 @@ public final class CollisionWorld {
                 box++;
             }
         }
-        return new CollisionWorld(minX, minY, minZ, sizeX, sizeY, sizeZ, cellStart,
-                boxBounds, boxCount);
+        return new CollisionWorld(minX, minY, minZ, sizeX, sizeY, sizeZ, cellState, states,
+                cellStart, boxBounds, boxCount);
+    }
+
+    /**
+     * {@code Block.slipperiness} of the block under the feet, read exactly where
+     * {@code EntityLivingBase.moveEntityWithHeading} reads it (EntityLivingBase.java:
+     * 1254-1264): the block at {@code floor(posX), floor(box.minY) - 1, floor(posZ)}.
+     * The entity box's minY is the state's feet y, so the caller passes the entity
+     * position. Unassigned cells and positions outside the grid are air, whose
+     * slipperiness is Block's 0.6f default (Block.java:321). O(1), no allocation.
+     */
+    public float slipperinessAt(double posX, double feetY, double posZ) {
+        int x = floor(posX);
+        int y = floor(feetY) - 1;
+        int z = floor(posZ);
+        if (x < this.minX || x >= this.minX + this.sizeX
+                || y < this.minY || y >= this.minY + this.sizeY
+                || z < this.minZ || z >= this.minZ + this.sizeZ) {
+            return DEFAULT_SLIPPERINESS;
+        }
+        int index = this.cellState[cellIndex(x, y, z)];
+        return index < 0 ? DEFAULT_SLIPPERINESS : this.states[index].slipperiness;
+    }
+
+    private int cellIndex(int x, int y, int z) {
+        return ((x - this.minX) * this.sizeY + (y - this.minY)) * this.sizeZ
+                + (z - this.minZ);
     }
 
     private static int cellIndex(int minX, int minY, int minZ, int sizeY, int sizeZ,

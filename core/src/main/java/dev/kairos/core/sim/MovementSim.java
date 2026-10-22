@@ -19,13 +19,15 @@ import dev.kairos.core.trace.TraceInput;
  *
  * <p><b>Scope.</b> Axis-aligned W-only movement (yaw 0) with jump, sneak and sprint, on
  * the scenario's collision world from {@code data/1.8.9/blocks.json} (task 1.2;
- * {@link CollisionWorld} owns the queries, this class owns the rules). Still
+ * {@link CollisionWorld} owns the queries, this class owns the rules), with the
+ * per-block {@code Block.slipperiness} under the feet read from the same dump (task 1.3;
+ * ice/packed ice 0.98f, stone/air 0.6f). Still
  * {@link UnsupportedOperationException}: strafe and non-zero yaw (tasks 1.2/1.6),
- * slipperiness read from the block under the feet (1.3 - the constant
- * {@value #SLIPPERINESS}f stone value stays hand-typed until then), ladder/water/lava/
- * flying (1.4), pushOutOfBlocks and the item-use axis scaling (not recorded, see notes
- * section 4). No jump classifier anywhere: step-up, head bumps and the sneaking edge
- * clamp fall out of the game's own sweep (AGENTS.md).
+ * ladder/water/lava/flying (1.4), pushOutOfBlocks and the item-use axis scaling (not
+ * recorded, see notes section 4). Tier C blocks (slime/soul sand/cobweb) are not
+ * modelled: slime's 0.8 is read from the dump, but its bounce and entity effects are
+ * out of scope until after Gate 2. No jump classifier anywhere: step-up, head bumps and
+ * the sneaking edge clamp fall out of the game's own sweep (AGENTS.md).
  *
  * <p><b>Purity and allocation.</b> {@link #step(State, TraceInput, CollisionWorld)} reads
  * and writes only the caller-owned {@link State} plus the world's query scratch: same
@@ -34,12 +36,6 @@ import dev.kairos.core.trace.TraceInput;
  * solvers copy states when they need branching.
  */
 public final class MovementSim {
-
-    /**
-     * Floor block slipperiness: stone = 0.6f (notes section 2.1, MCPK "Slipperiness"
-     * page). Hand-typed ONLY until task 1.3 loads it from {@code blocks.json}.
-     */
-    private static final float SLIPPERINESS = 0.6f;
 
     /** Entity width 0.6f, halved as a float (Entity.setPosition, Entity.java:392-399). */
     private static final float WIDTH_HALF = 0.6f / 2.0f;
@@ -319,18 +315,20 @@ public final class MovementSim {
      */
     private static void moveEntityWithHeading(State s, float strafe, float forward,
             boolean sneaking, CollisionWorld world) {
-        // f4 = block.slipperiness * 0.91f from the block under the feet (:1254-1257);
-        // still the constant stone value until task 1.3 reads blocks.json.
+        // :1254-1257: on the ground, f4 = block.slipperiness * 0.91f for the block under
+        // the feet (floor(posX), floor(box.minY) - 1, floor(posZ)); air otherwise.
         float f4 = 0.91f;
         if (s.onGround) {
-            f4 = SLIPPERINESS * 0.91f;
+            f4 = world.slipperinessAt(s.x, s.y, s.z) * 0.91f;
         }
         float f = 0.16277136f / (f4 * f4 * f4);          // :1258
         float f5 = s.onGround ? aimoveSpeed(s) * f : s.jumpMovementFactor;  // :1259
         moveFlying(s, strafe, forward, f5);              // :1260, notes section 2.3
-        f4 = 0.91f;                                      // :1261-1264 recompute
-        if (s.onGround) {                                // (still the PRE-move onGround)
-            f4 = SLIPPERINESS * 0.91f;
+        // :1261-1264 recompute f4 with the SAME pre-move inputs (moveEntity has not run
+        // yet), so the second lookup always agrees with the first.
+        f4 = 0.91f;
+        if (s.onGround) {
+            f4 = world.slipperinessAt(s.x, s.y, s.z) * 0.91f;
         }
         moveEntity(s, sneaking, world);                  // :1279, notes section 2.8
         s.vy -= 0.08;                                    // :1283 gravity

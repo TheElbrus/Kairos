@@ -64,10 +64,12 @@ JDK 8. Set `KAIROS_PRINT_ONLY=1` to print the command without launching. Details
 **Building and running** (task 0.3) and **recording** (task 0.4): the dev client launches,
 logs the banner, the P keybind echoes a `core` constant, and `/kairos record start|stop|status`
 writes one JSONL trace line per client tick (format frozen in `../docs/adr/0010-trace-format-v1.md`).
-**Block dumping** (task 1.0): `/kairos dumpblocks` writes `run/kairos/blocks.json`
-(schema 1, see the `BlockDumper` class comment) -- every registered block state with its
-collision boxes, slipperiness and climbable flag, deterministic (LF-only; two consecutive
-runs print the same SHA-256). Scenario runs (`/kairos scenario run|runmany`) are task 0.5.
+**Block dumping** (task 1.0; schema 2 since task 1.4): `/kairos dumpblocks` writes
+`run/kairos/blocks.json` (see the `BlockDumper` class comment) -- every registered block
+state with its collision boxes, slipperiness and climbable flag, the generated connector
+facts (`connector` kind/group/cube/pane) and the per-state `solid` mask of
+`Block.isSideSolid`, deterministic (LF-only; two consecutive runs print the same SHA-256).
+Scenario runs (`/kairos scenario run|runmany`) are task 0.5.
 See `../docs/STATUS.md` and `../docs/JOURNAL.md`.
 
 Recording a trace in the dev client:

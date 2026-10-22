@@ -161,9 +161,13 @@ public final class CollisionWorld {
         }
 
         // Two passes over the same shape writer: count first (dense prefix table), then
-        // fill. Connector shapes are at most two boxes; the dump's own boxes are used for
-        // every other block.
-        double[] shape = new double[12];
+        // fill. The scratch is sized from the data: connector shapes are at most two
+        // boxes, but non-connector blocks use every dumped box (hopper/cauldron have 5).
+        int maxBoxes = 2;
+        for (BlockData.State state : states) {
+            maxBoxes = Math.max(maxBoxes, state.boxes.size());
+        }
+        double[] shape = new double[maxBoxes * 6];
         int[] cellStart = new int[cellCount + 1];
         for (int cell = 0; cell < cellCount; cell++) {
             int index = cellState[cell];
@@ -207,8 +211,9 @@ public final class CollisionWorld {
 
     /**
      * Writes the cell's collision boxes in block-local coordinates into {@code out}
-     * (6 doubles per box) and returns the count. Non-connector blocks use the dump's
-     * lone-block boxes; fences, walls and panes are recomputed from the neighbours.
+     * (6 doubles per box) and returns the count. Non-connector blocks copy every one of
+     * their dump boxes (hopper/cauldron have 5, so {@code out} is sized from the data);
+     * fences, walls and panes are recomputed from the neighbours and never exceed 2.
      */
     private static int shapeBoxes(BlockData.State state, int[] cellState,
             BlockData.State[] states, int minX, int minY, int minZ, int sizeX, int sizeY,

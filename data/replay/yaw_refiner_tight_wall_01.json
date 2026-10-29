@@ -1,0 +1,9 @@
+{
+  "scenario": "yaw_refiner_tight_wall_01",
+  "target": {"minX": 0.6849149999999999, "maxX": 1.284915, "minZ": 5.511064, "maxZ": 6.111064, "surfaceY": 65.0, "edgeMargin": 0.59},
+  "inputSha256": "1c4b846a5499e9b2b38bf519c7cf2fb81dd498f65a12b2a2de7c67646746f032",
+  "trace": "data/traces/replay/yaw_refiner_tight_wall_01.jsonl",
+  "traceSha256": "c2d192d812b7cb09bcbdc793a5fe66f028a6f24faeec0d479c006a3b895832e0",
+  "lineCount": 20,
+  "outcome": "landed"
+}

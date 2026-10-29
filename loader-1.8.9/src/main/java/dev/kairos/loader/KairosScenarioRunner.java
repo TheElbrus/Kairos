@@ -418,7 +418,10 @@ public final class KairosScenarioRunner {
                 }
                 this.scriptedInput.apply(segment);
                 setSprintKey(segment.sprint != 0);
-                applyYaw(player);
+                // A segment yaw overrides Scenario.yaw for this tick; absent keeps the
+                // frozen fixed-yaw behavior (ScenarioInput.yaw, PLAN.md 5.2).
+                applyYaw(player, segment.yaw == null
+                        ? this.scenario.yaw : segment.yaw.floatValue());
                 if (this.recordTick == 0) {
                     // Start the recorder on the same START, so the anchor and tick 0 share
                     // this tick. This handler runs at HIGHEST priority (see the class
@@ -967,7 +970,11 @@ public final class KairosScenarioRunner {
     }
 
     private void applyYaw(EntityPlayerSP player) {
-        player.rotationYaw = this.scenario.yaw;
+        applyYaw(player, this.scenario.yaw);
+    }
+
+    private void applyYaw(EntityPlayerSP player, float yaw) {
+        player.rotationYaw = yaw;
         player.rotationPitch = this.scenario.pitch;
     }
 

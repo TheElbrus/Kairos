@@ -126,7 +126,8 @@ public final class ScenarioParser {
             inputs.add(new ScenarioInput(
                     ticks,
                     flag(in, "w"), flag(in, "a"), flag(in, "s"), flag(in, "d"),
-                    flag(in, "jump"), flag(in, "sneak"), flag(in, "sprint")));
+                    flag(in, "jump"), flag(in, "sneak"), flag(in, "sprint"),
+                    optionalYaw(in)));
         }
         return inputs;
     }
@@ -180,6 +181,31 @@ public final class ScenarioParser {
             throw new IllegalArgumentException("\"" + key + "\" must be a number");
         }
         return ((Double) value).floatValue();
+    }
+
+    /**
+     * An optional per-tick yaw. {@code null} means the field is absent and the loader uses
+     * the scenario-level yaw; a number must survive the exact double-to-float conversion
+     * without becoming infinite.
+     */
+    private static Float optionalYaw(Map<String, Object> map) {
+        Object value = map.get("yaw");
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Double)) {
+            throw new IllegalArgumentException("\"yaw\" must be a number");
+        }
+        double number = (Double) value;
+        if (Double.isNaN(number) || Double.isInfinite(number)) {
+            throw new IllegalArgumentException("\"yaw\" must be finite, got " + number);
+        }
+        float yaw = (float) number;
+        if (Float.isNaN(yaw) || Float.isInfinite(yaw)) {
+            throw new IllegalArgumentException(
+                    "\"yaw\" must fit in a finite float, got " + number);
+        }
+        return Float.valueOf(yaw);
     }
 
     private static int optionalInt(Map<String, Object> map, String key, int fallback) {

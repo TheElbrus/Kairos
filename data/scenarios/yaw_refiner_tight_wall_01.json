@@ -1,0 +1,41 @@
+{
+  "name": "yaw_refiner_tight_wall_01",
+  "start": {"pos": [0.9, 65.0, 0.5], "yaw": 0.0, "pitch": 0.0},
+  "blocks": [
+    {"from": [-4, 60, -2], "to": [4, 63, 26], "id": "air"},
+    {"from": [-4, 67, -2], "to": [4, 80, 26], "id": "air"},
+    {"from": [-4, 64, -2], "to": [-4, 66, 26], "id": "air"},
+    {"from": [4, 64, -2], "to": [4, 66, 26], "id": "air"},
+    {"from": [-3, 64, 1], "to": [3, 64, 4], "id": "air"},
+    {"from": [-3, 65, -2], "to": [3, 66, 1], "id": "air"},
+    {"from": [-3, 65, 3], "to": [3, 66, 26], "id": "air"},
+    {"from": [-3, 65, 2], "to": [-1, 66, 2], "id": "air"},
+    {"from": [2, 65, 2], "to": [3, 66, 2], "id": "air"},
+    {"from": [-3, 64, -20], "to": [3, 64, 0], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [-3, 64, 5], "to": [3, 64, 25], "id": "stone", "props": {"variant": "stone"}},
+    {"from": [0, 65, 2], "to": [0, 66, 2], "id": "fence", "props": {"east": "false", "north": "false", "south": "false", "west": "false"}},
+    {"from": [1, 65, 2], "to": [1, 66, 2], "id": "nether_brick_fence", "props": {"east": "false", "north": "false", "south": "false", "west": "false"}}
+  ],
+  "settleTicks": 10,
+  "inputs": [
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": -14.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": -16.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": -1.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": -1.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": -1.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 1, "sneak": 0, "sprint": 1, "yaw": -1.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 18.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 29.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 1, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0},
+    {"ticks": 1, "w": 1, "a": 0, "s": 0, "d": 0, "jump": 0, "sneak": 0, "sprint": 1, "yaw": 44.0}
+  ]
+}

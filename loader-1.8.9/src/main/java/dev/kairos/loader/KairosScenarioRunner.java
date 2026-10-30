@@ -4,6 +4,7 @@ package dev.kairos.loader;
 // `stable_22`), as AGENTS.md requires. mc-src/ is gitignored and never committed.
 
 import dev.kairos.core.fuzz.FuzzScenarios;
+import dev.kairos.core.replay.ReplayScenarios;
 import dev.kairos.core.scenario.Scenario;
 import dev.kairos.core.scenario.ScenarioBlock;
 import dev.kairos.core.scenario.ScenarioInput;
@@ -86,11 +87,16 @@ public final class KairosScenarioRunner {
     /** How close the client position must be to the requested one, in blocks. */
     private static final double POS_EPSILON = 1.0E-6;
 
-    /** Fuzz records a single trace per corpus line; progress prints every N scenarios. */
-    private static final int FUZZ_PROGRESS_EVERY = 25;
+    /** Fuzz and sample batches record one trace per corpus line; progress every N. */
+    private static final int BATCH_PROGRESS_EVERY = 25;
 
     private enum Phase {
         IDLE, TELEPORT, BUILD, TELEPORT2, SETTLE, RECORD
+    }
+
+    /** Which committed corpus a batch is recording (task 1.7.1 / task 2.8). */
+    private enum BatchKind {
+        FUZZ, SAMPLE
     }
 
     private final KairosRecorder recorder;
@@ -128,15 +134,16 @@ public final class KairosScenarioRunner {
     private final ScriptedSprintKey scriptedSprintKey = new ScriptedSprintKey();
 
     /**
-     * Fuzz batch state (task 1.7.1). The corpus is read and every scenario/state is
-     * resolved before the first world edit; {@code fuzzNext} is the 0-based index of the
-     * scenario being (or about to be) recorded, {@code fuzzTotal} the batch size.
+     * Batch state shared by fuzz (task 1.7.1) and the replay sample (task 2.8). The
+     * corpus is read and every scenario/state is resolved before the first world edit;
+     * {@code batchNext} is the 0-based index of the scenario being (or about to be)
+     * recorded, {@code batchTotal} the batch size.
      */
-    private boolean fuzzMode;
-    private List<Scenario> fuzzScenarios;
-    private IBlockState[][] fuzzStates;
-    private int fuzzNext;
-    private int fuzzTotal;
+    private BatchKind batchKind;
+    private List<Scenario> batchScenarios;
+    private IBlockState[][] batchStates;
+    private int batchNext;
+    private int batchTotal;
 
     public KairosScenarioRunner(KairosRecorder recorder) {
         this.recorder = recorder;
@@ -215,12 +222,40 @@ public final class KairosScenarioRunner {
      * at the first missing one (a trace after a gap is refused, never overwritten).
      */
     public void runFuzz(int count, boolean resume, ICommandSender sender) {
+        startBatch(BatchKind.FUZZ, count, resume, sender);
+    }
+
+    /**
+     * {@code /kairos scenario sample <count> [resume]} (task 2.8): records the first
+     * {@code count} committed replay-corpus scenarios, one trace named exactly like the
+     * scenario ({@code sample_NNNN.jsonl}), through the same batch lifecycle as fuzz.
+     */
+    public void runSamples(int count, boolean resume, ICommandSender sender) {
+        if (count < 1 || count > ReplayScenarios.EXPECTED_COUNT) {
+            chatRed(sender, "sample count must be a number 1.."
+                    + ReplayScenarios.EXPECTED_COUNT);
+            return;
+        }
+        startBatch(BatchKind.SAMPLE, count, resume, sender);
+    }
+
+    /**
+     * Shared preflight and start for both committed corpora. All parsing and state
+     * resolution happens here, before any world edit: a bad line fails with its scenario
+     * name and no block is placed. Without {@code resume} an existing expected trace
+     * refuses the whole batch; with {@code resume} a leading run of existing traces is
+     * skipped and recording continues at the first missing one (a trace after a gap is
+     * refused, never overwritten).
+     */
+    private void startBatch(BatchKind kind, int count, boolean resume,
+            ICommandSender sender) {
+        String label = label(kind);
         if (isBusy()) {
             chat(sender, "a run is already in progress");
             return;
         }
         if (count < 1) {
-            chatRed(sender, "fuzz count must be >= 1");
+            chatRed(sender, label + " count must be >= 1");
             return;
         }
         if (this.recorder.isRecording()) {
@@ -229,15 +264,17 @@ public final class KairosScenarioRunner {
         }
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer == null || mc.theWorld == null || mc.getIntegratedServer() == null) {
-            chatRed(sender, "fuzz needs a loaded singleplayer world");
+            chatRed(sender, label + " needs a loaded singleplayer world");
             return;
         }
 
         List<String> lines;
         try {
-            lines = FuzzScenarios.lines(mc.mcDataDir);
+            lines = kind == BatchKind.FUZZ
+                    ? FuzzScenarios.lines(mc.mcDataDir)
+                    : ReplayScenarios.lines(mc.mcDataDir);
         } catch (IOException e) {
-            chatRed(sender, "fuzz corpus unavailable: " + e.getMessage());
+            chatRed(sender, label + " corpus unavailable: " + e.getMessage());
             return;
         }
         int total = Math.min(count, lines.size());
@@ -245,6 +282,8 @@ public final class KairosScenarioRunner {
         Scenario[] scenarios = new Scenario[total];
         IBlockState[][] states = new IBlockState[total][];
         String[] names = new String[total];
+        String corpusPath = kind == BatchKind.FUZZ
+                ? FuzzScenarios.RELATIVE_PATH : ReplayScenarios.RELATIVE_PATH;
         for (int i = 0; i < total; i++) {
             try {
                 Scenario parsed = ScenarioParser.parse(lines.get(i));
@@ -252,8 +291,8 @@ public final class KairosScenarioRunner {
                 scenarios[i] = parsed;
                 names[i] = parsed.name;
             } catch (IllegalArgumentException e) {
-                chatRed(sender, "fuzz scenario " + (i + 1) + "/" + total + " in "
-                        + FuzzScenarios.RELATIVE_PATH + " is invalid: " + e.getMessage());
+                chatRed(sender, label + " scenario " + (i + 1) + "/" + total + " in "
+                        + corpusPath + " is invalid: " + e.getMessage());
                 return;
             }
         }
@@ -267,7 +306,8 @@ public final class KairosScenarioRunner {
             }
         }
         if (!resume && firstExisting >= 0) {
-            chatRed(sender, "fuzz refused: " + new File(dir, names[firstExisting] + ".jsonl").getPath()
+            chatRed(sender, label + " refused: "
+                    + new File(dir, names[firstExisting] + ".jsonl").getPath()
                     + " already exists; delete it or rerun with 'resume'");
             return;
         }
@@ -277,12 +317,13 @@ public final class KairosScenarioRunner {
                 skipped++;
             }
             if (skipped == total) {
-                chat(sender, "all " + total + " fuzz traces already exist; nothing to record");
+                chat(sender, "all " + total + " " + label
+                        + " traces already exist; nothing to record");
                 return;
             }
             for (int i = skipped; i < total; i++) {
                 if (new File(dir, names[i] + ".jsonl").isFile()) {
-                    chatRed(sender, "fuzz resume refused: "
+                    chatRed(sender, label + " resume refused: "
                             + new File(dir, names[i] + ".jsonl").getPath()
                             + " exists after the first missing trace");
                     return;
@@ -290,38 +331,42 @@ public final class KairosScenarioRunner {
             }
         }
         if (!dir.isDirectory() && !dir.mkdirs()) {
-            chatRed(sender, "fuzz could not create " + dir.getPath());
+            chatRed(sender, label + " could not create " + dir.getPath());
             return;
         }
 
-        this.fuzzMode = true;
-        this.fuzzScenarios = Arrays.asList(scenarios);
-        this.fuzzStates = states;
-        this.fuzzNext = skipped;
-        this.fuzzTotal = total;
+        this.batchKind = kind;
+        this.batchScenarios = Arrays.asList(scenarios);
+        this.batchStates = states;
+        this.batchNext = skipped;
+        this.batchTotal = total;
         this.runsTotal = 0;
         this.runIndex = 0;
 
-        chat(sender, "fuzz: " + total + " scenarios from " + FuzzScenarios.RELATIVE_PATH
+        chat(sender, label + ": " + total + " scenarios from " + corpusPath
                 + (resume ? " (resume)" : ""));
         if (skipped > 0) {
-            chat(sender, "fuzz resume: skipping " + skipped + " existing trace(s)");
+            chat(sender, label + " resume: skipping " + skipped + " existing trace(s)");
         }
-        loadFuzzScenario();
+        loadBatchScenario();
         beginRun(sender);
     }
 
-    /** Makes the scenario at {@code fuzzNext} the current one (states already resolved). */
-    private void loadFuzzScenario() {
-        this.scenario = this.fuzzScenarios.get(this.fuzzNext);
-        this.regionStates = this.fuzzStates[this.fuzzNext];
+    /** Makes the scenario at {@code batchNext} the current one (states already resolved). */
+    private void loadBatchScenario() {
+        this.scenario = this.batchScenarios.get(this.batchNext);
+        this.regionStates = this.batchStates[this.batchNext];
+    }
+
+    private static String label(BatchKind kind) {
+        return kind == BatchKind.FUZZ ? "fuzz" : "sample";
     }
 
     private void beginRun(ICommandSender sender) {
         this.runGeneration++;
         this.savedStates = null;
         this.savedCoords = null;
-        this.traceName = !this.fuzzMode && this.runsTotal > 1
+        this.traceName = this.batchKind == null && this.runsTotal > 1
                 ? runFileBase(this.scenario.name, this.runIndex) : this.scenario.name;
         this.waitTicks = 0;
         this.settleCounter = 0;
@@ -342,7 +387,7 @@ public final class KairosScenarioRunner {
         resetPlayerState(mc);
         teleportToStart(mc);
         this.phase = Phase.TELEPORT;
-        if (!this.fuzzMode) {
+        if (this.batchKind == null) {
             chat(sender, (this.runsTotal > 1 ? ("run " + (this.runIndex + 1) + "/" + this.runsTotal + ": ") : "")
                     + "placing the player for '" + this.scenario.name + "'");
         }
@@ -428,8 +473,9 @@ public final class KairosScenarioRunner {
                     // comment), so recorder.start() is called before KairosRecorder's own
                     // START handler writes the tick:-1 anchor later in this dispatch.
                     // traceName carries the run index for runmany and is the scenario name
-                    // otherwise (single run and fuzz); every run stamps the SAME base
-                    // scenario label, so the scenario field never differs (ADR 0010).
+                    // otherwise (single run and both committed corpora); every run stamps
+                    // the SAME base scenario label, so the scenario field never differs
+                    // (ADR 0010).
                     this.recorder.start(this.traceName, this.scenario.name, null);
                     if (!this.recorder.isRecording()) {
                         // start() refused (bad name or the file already exists): do not run
@@ -497,22 +543,23 @@ public final class KairosScenarioRunner {
         restoreMovementInput(mc);
         scheduleRestore(mc);
 
-        if (this.fuzzMode) {
-            this.fuzzNext++;
-            if (this.fuzzNext < this.fuzzTotal) {
-                if (this.fuzzNext % FUZZ_PROGRESS_EVERY == 0) {
-                    chat(null, "fuzz progress: " + this.fuzzNext + "/" + this.fuzzTotal
+        if (this.batchKind != null) {
+            String label = label(this.batchKind);
+            this.batchNext++;
+            if (this.batchNext < this.batchTotal) {
+                if (this.batchNext % BATCH_PROGRESS_EVERY == 0) {
+                    chat(null, label + " progress: " + this.batchNext + "/" + this.batchTotal
                             + " traces");
                 }
-                loadFuzzScenario();
+                loadBatchScenario();
                 beginRun(null);
                 return;
             }
-            chat(null, "fuzz progress: " + this.fuzzNext + "/" + this.fuzzTotal + " traces");
-            chat(null, "fuzz done: " + this.fuzzTotal + "/" + this.fuzzTotal + " traces -> "
+            chat(null, label + " progress: " + this.batchNext + "/" + this.batchTotal + " traces");
+            chat(null, label + " done: " + this.batchTotal + "/" + this.batchTotal + " traces -> "
                     + tracesDir(mc).getPath());
             this.phase = Phase.IDLE;
-            clearFuzz();
+            clearBatch();
             return;
         }
 
@@ -558,23 +605,23 @@ public final class KairosScenarioRunner {
         }
         restoreMovementInput(mc);
         scheduleRestore(mc);
-        if (this.fuzzMode) {
-            chatRed(null, "fuzz aborted at " + this.scenario.name + " (" + (this.fuzzNext + 1)
-                    + "/" + this.fuzzTotal + "): " + why);
+        if (this.batchKind != null) {
+            chatRed(null, label(this.batchKind) + " aborted at " + this.scenario.name + " ("
+                    + (this.batchNext + 1) + "/" + this.batchTotal + "): " + why);
         } else {
             chatRed(null, "scenario aborted: " + why);
         }
         this.phase = Phase.IDLE;
-        clearFuzz();
+        clearBatch();
     }
 
-    /** Drops the fuzz batch bookkeeping; a completed or aborted batch leaves no mode on. */
-    private void clearFuzz() {
-        this.fuzzMode = false;
-        this.fuzzScenarios = null;
-        this.fuzzStates = null;
-        this.fuzzNext = 0;
-        this.fuzzTotal = 0;
+    /** Drops the batch bookkeeping; a completed or aborted batch leaves no mode on. */
+    private void clearBatch() {
+        this.batchKind = null;
+        this.batchScenarios = null;
+        this.batchStates = null;
+        this.batchNext = 0;
+        this.batchTotal = 0;
     }
 
     private boolean timedOut() {

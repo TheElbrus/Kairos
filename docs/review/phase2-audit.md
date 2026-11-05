@@ -1,9 +1,9 @@
-> **Current status — 2026-11-05: ACCEPTED FOR COMMIT; Gate 2 remains pending M3.**
+> **Current status — 2026-11-05: GATE 2 PASS; M3 confirmed.**
 >
-> All seven findings in the 2026-11-01 review are resolved; see the dated addendum at
-> the end. The original body and its NOT CLEAN verdict are kept unchanged as history.
-> This review accepts the evidence for commit only. It does not declare Gate 2 complete
-> and does not authorise the `phase2-done` tag.
+> All seven findings in the 2026-11-01 review are resolved, and the human-recorded M3
+> tight-jump clip is confirmed. The original body and its NOT CLEAN verdict are kept
+> unchanged as history; see the two dated addenda at the end. This commit is the
+> `phase2-done` gate commit.
 
 # Phase 2 audit — 2026-11-01
 
@@ -231,11 +231,26 @@ accepted Task 2.9/2.10 work:
 | 100% feasible-by-construction catalog targets solved | **PASS** | 14/14 single jumps (12 `JumpSolver` + 2 `BeamSolver`); 2/2 ladders; 4/4 infeasible entries return no plan; catalog 21 entries (16 feasible, 4 infeasible, 1 unknown) |
 | 200-plan in-game replay lands | **PASS (200/200)** | `data/traces/replay/sample/` (200 traces) and `data/replay/sample_01_result.json`; corpus SHA-256 `0B92DB878F77F490FB9CB57F76BDDBE63A21BC9F79833D0E70FC856CDE348672`, result SHA-256 `2A4AC976E536F530D3F9F06F829F99300BB96D80F8FAD7ED4F07F7A2DEF0BEAC` |
 | Median solve time recorded + budget set | **PASS** | median 125.184 ms; Gate 2 budget 1,260 ms = `min(10 x median, 2000 ms)` rounded up to 10 ms; `data/replay/sample_01_timing.json` SHA-256 `4829772971105F49AC24954EF0E84B279557516F78534A8831CB8FDCEE7B47DD` |
-| M3 tight-jump video | **PENDING (M3)** | not recorded; `/kairos scenario run yaw_refiner_tight_wall_01`; keep local, never commit |
+| M3 tight-jump video | **PASS** | human-recorded in the real 1.8.9 dev client with `/kairos scenario run yaw_refiner_tight_wall_01`; clip kept local, never committed; rerun trace 7,500 bytes, SHA-256 `C2D192D812B7CB09BCBDC793A5FE66F028A6F24FAEEC0D479C006A3B895832E0` |
 
 Verification: `.\gradlew.bat :core:cleanTest :core:test --console=plain --offline`
 passes with 163 tests, 0 failures, 0 errors and 0 skipped in 44 classes; the separate
 loader build passes on JDK 21; the frozen replay/scenario paths are unchanged.
 
-**This addendum accepts the Task 2.9/2.10 evidence for commit. It does not declare
-Gate 2 complete; do not tag `phase2-done` until the M3 clip is recorded and reviewed.**
+**This addendum accepts the Task 2.9/2.10 evidence for commit.**
+
+---
+
+## M3 addendum — 2026-11-05: tight-jump clip confirmed
+
+The human recorded the M3 clip in the real 1.8.9 dev client with
+`/kairos scenario run yaw_refiner_tight_wall_01`. The rerun recorded 19 ticks and
+reproduced the committed 20-line trace byte-for-byte:
+
+- `data/traces/replay/yaw_refiner_tight_wall_01.jsonl`
+- 7,500 bytes, SHA-256 `C2D192D812B7CB09BCBDC793A5FE66F028A6F24FAEEC0D479C006A3B895832E0`
+- client log: `run 1/1 done: 19 ticks -> yaw_refiner_tight_wall_01.jsonl`
+
+The clip itself is kept outside the repository and is not committed.
+
+**Gate 2 verdict: PASS. This commit is tagged `phase2-done`.**

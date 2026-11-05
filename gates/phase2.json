@@ -1,10 +1,11 @@
 {
   "phase": 2,
   "task": "2.9",
-  "status": "pending-m3",
-  "tagPending": true,
+  "status": "pass",
+  "tagPending": false,
+  "tag": "phase2-done",
   "date": "2026-11-05",
-  "commit": null,
+  "commit": "fa20dbe4053149922ade7cfb9d41771860f37868",
   "catalog": {
     "entries": 21,
     "feasible": 16,
@@ -65,9 +66,14 @@
     "loaderGradleVersion": "8.8"
   },
   "m3": {
-    "status": "pending",
+    "status": "confirmed",
     "command": "/kairos scenario run yaw_refiner_tight_wall_01",
-    "committed": false
+    "recorded": "2026-11-05",
+    "ticks": 19,
+    "traceLines": 20,
+    "traceSha256": "C2D192D812B7CB09BCBDC793A5FE66F028A6F24FAEEC0D479C006A3B895832E0",
+    "committed": false,
+    "note": "human-recorded screen clip, kept outside the repository"
   },
   "commands": [
     ".\\gradlew.bat :core:cleanTest :core:test --console=plain --offline",
@@ -76,6 +82,7 @@
     "Get-FileHash data/scenarios/replay_sample.jsonl -Algorithm SHA256",
     "Get-FileHash data/replay/sample_01_result.json -Algorithm SHA256",
     "Get-FileHash data/replay/sample_01_timing.json -Algorithm SHA256",
+    "Get-FileHash data/traces/replay/yaw_refiner_tight_wall_01.jsonl -Algorithm SHA256",
     "(Get-ChildItem data/traces/replay/sample -Filter *.jsonl | Measure-Object).Count",
     "git diff -- data/replay/sample_01_result.json data/replay/sample_01_timing.json data/traces data/scenarios"
   ]

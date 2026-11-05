@@ -26,9 +26,9 @@ import static dev.kairos.core.catalog.CatalogEntry.LabelSource.WIKI;
  *
  * <p>Labels: gaps 1-3, offset_side2 and the 1/4-block ice gaps are wiki reachability
  * (docs/physics-notes.md 2.10); gap 4 is the Gate 0.5 in-game oracle; height, slab,
- * offset_side1, ladder and the remaining feasible entries are constructible; envelope
- * entries are the 2-block rise, the headhitter, the 5-block unknown, and the gaps/offsets
- * outside the tested 4-block envelope. No solver is called here.
+ * offset_side1, ladder, the headhitter and the remaining feasible entries are
+ * constructible; envelope entries are the 2-block rise, the 5-block unknown, and the
+ * gaps/offsets outside the tested 4-block envelope. No solver is called here.
  */
 public final class CatalogGenerator {
 
@@ -56,17 +56,23 @@ public final class CatalogGenerator {
                             FEASIBLE, CONSTRUCTION, "height", "step", "jump"),
                     entry("height_up2_wall", 0, 64, 0, runup(0, 1, 2, 3), 0, 66, 1,
                             INFEASIBLE, ENVELOPE, "height", "wall"),
+                    // A 1-block gap under a 2-block ceiling (bottom at y=67) is a normal
+                    // headhitter jump, not an envelope row: feasible by construction.
                     entry("headhitter_gap1_ceiling2", 0, 64, 0, runup(0, 1, 2, 3), 0, 64, 2,
-                            INFEASIBLE, ENVELOPE, "headhitter", "gap", "flat", "ceiling2"),
+                            FEASIBLE, CONSTRUCTION, "headhitter", "gap", "flat", "ceiling2"),
                     entry("ice_gap1_sprint", 0, 64, 0, runup(0, 1, 2, 3, 4, 5), 0, 64, 2,
                             FEASIBLE, WIKI, "ice", "gap", "flat", "sprint"),
                     entry("ice_gap4_sprint", 0, 64, 0, runup(0, 1, 2, 3, 4, 5), 0, 64, 5,
                             FEASIBLE, WIKI, "ice", "gap", "flat", "sprint", "momentum"),
                     entry("ice_gap8_infeasible", 0, 64, 0, runup(0, 1, 2, 3, 4, 5), 0, 64, 9,
                             INFEASIBLE, ENVELOPE, "ice", "gap", "flat"),
-                    entry("ladder_climb2", 0, 64, 0, runup(), 0, 66, 0,
+                    // Climb worlds: the goal is the top of a one-block-forward wall with
+                    // the ladder on its south face (ladder cell facing north). The old
+                    // same-column goal sat inside the player's 1.8-block body space and
+                    // could not be stood on.
+                    entry("ladder_climb2", 0, 64, 0, runup(), 0, 66, 1,
                             FEASIBLE, CONSTRUCTION, "ladder", "climb"),
-                    entry("ladder_climb4", 0, 64, 0, runup(), 0, 68, 0,
+                    entry("ladder_climb4", 0, 64, 0, runup(), 0, 68, 1,
                             FEASIBLE, CONSTRUCTION, "ladder", "climb"),
                     entry("offset_side1_gap1", 0, 64, 0, runup(0, 1, 2, 3), 1, 64, 2,
                             FEASIBLE, CONSTRUCTION, "offset", "gap", "flat"),

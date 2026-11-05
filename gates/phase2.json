@@ -1,0 +1,82 @@
+{
+  "phase": 2,
+  "task": "2.9",
+  "status": "pending-m3",
+  "tagPending": true,
+  "date": "2026-11-05",
+  "commit": null,
+  "catalog": {
+    "entries": 21,
+    "feasible": 16,
+    "feasibleJumps": 14,
+    "feasibleLadders": 2,
+    "infeasible": 4,
+    "unknown": 1
+  },
+  "coverage": {
+    "jumpsSolved": 14,
+    "jumpSolver": 12,
+    "beamSolver": 2,
+    "beamSolverEntries": [
+      "offset_side1_gap1",
+      "offset_side2_gap2"
+    ],
+    "infeasibleNoPlan": 4,
+    "edgeMargin": 0.1,
+    "ladderTopTicks": [
+      21,
+      38
+    ],
+    "ladderMarginTicks": [
+      22,
+      39
+    ],
+    "ladderTickBudget": 80
+  },
+  "replay": {
+    "sample": 200,
+    "landed": 200,
+    "corpusSha256": "0B92DB878F77F490FB9CB57F76BDDBE63A21BC9F79833D0E70FC856CDE348672",
+    "resultSha256": "2A4AC976E536F530D3F9F06F829F99300BB96D80F8FAD7ED4F07F7A2DEF0BEAC",
+    "timingSha256": "4829772971105F49AC24954EF0E84B279557516F78534A8831CB8FDCEE7B47DD",
+    "traceCount": 200
+  },
+  "timing": {
+    "medianMs": 125.184,
+    "budgetMs": 1260,
+    "rule": "min(10 x median, 2000 ms) rounded up to 10 ms"
+  },
+  "tests": {
+    "total": 163,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "classes": 44
+  },
+  "loader": {
+    "status": "pass",
+    "command": "$env:JAVA_HOME='C:\\Users\\Kay\\.jdks\\ms-21.0.12.1'; $env:GRADLE_USER_HOME='..\\.gradle-home'; .\\gradlew.bat build --console=plain --offline",
+    "workingDirectory": "loader-1.8.9"
+  },
+  "environment": {
+    "loaderJavaHome": "C:\\Users\\Kay\\.jdks\\ms-21.0.12.1",
+    "loaderJdk": "Microsoft OpenJDK 21.0.12.1",
+    "gradleUserHome": "..\\.gradle-home",
+    "loaderGradleVersion": "8.8"
+  },
+  "m3": {
+    "status": "pending",
+    "command": "/kairos scenario run yaw_refiner_tight_wall_01",
+    "committed": false
+  },
+  "commands": [
+    ".\\gradlew.bat :core:cleanTest :core:test --console=plain --offline",
+    ".\\gradlew.bat :core:build --console=plain --offline",
+    "$env:JAVA_HOME='C:\\Users\\Kay\\.jdks\\ms-21.0.12.1'; $env:GRADLE_USER_HOME='..\\.gradle-home'; .\\gradlew.bat build --console=plain --offline",
+    "Get-FileHash data/scenarios/replay_sample.jsonl -Algorithm SHA256",
+    "Get-FileHash data/replay/sample_01_result.json -Algorithm SHA256",
+    "Get-FileHash data/replay/sample_01_timing.json -Algorithm SHA256",
+    "(Get-ChildItem data/traces/replay/sample -Filter *.jsonl | Measure-Object).Count",
+    "git diff -- data/replay/sample_01_result.json data/replay/sample_01_timing.json data/traces data/scenarios"
+  ]
+}

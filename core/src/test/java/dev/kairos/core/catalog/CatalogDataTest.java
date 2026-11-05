@@ -90,7 +90,9 @@ class CatalogDataTest {
                 continue;
             }
             if (entry.tags.contains("headhitter")) {
-                assertEquals(INFEASIBLE, entry.expect, entry.id + " headhitter");
+                assertEquals(FEASIBLE, entry.expect, entry.id + " headhitter");
+                assertEquals(CONSTRUCTION, entry.labelSource, entry.id + " headhitter source");
+                assertTrue(entry.tags.contains("ceiling2"), entry.id + " must keep ceiling2");
                 continue;
             }
             if (entry.expect == FEASIBLE) {
@@ -106,6 +108,72 @@ class CatalogDataTest {
                 assertEquals(6, dz, entry.id + " unknown is the 5-block gap");
             }
         }
+    }
+
+    @Test
+    void finalCountsAndLadderGeometryAreCanonical() throws IOException {
+        List<CatalogEntry> entries = CatalogReader.readDirectory(CatalogRunner.locate(workDir()));
+        assertEquals(21, entries.size(), "final catalog size");
+
+        int feasible = 0;
+        int infeasible = 0;
+        int unknown = 0;
+        int jumps = 0;
+        int ladders = 0;
+        for (CatalogEntry entry : entries) {
+            if (entry.expect == FEASIBLE) {
+                feasible++;
+                if (entry.tags.contains("ladder")) {
+                    ladders++;
+                    assertTrue(entry.runup.isEmpty(),
+                            entry.id + ": a ladder climb must not declare a run-up");
+                    assertEquals(entry.startX, entry.goalX, entry.id + " climb stays in one column");
+                    assertEquals(entry.startZ + 1, entry.goalZ,
+                            entry.id + " goal must be one block forward");
+                    int rise = entry.goalY - entry.startY;
+                    assertTrue(rise == 2 || rise == 4, entry.id + " ladder rise " + rise);
+                } else {
+                    jumps++;
+                }
+            } else if (entry.expect == INFEASIBLE) {
+                infeasible++;
+            } else {
+                unknown++;
+            }
+        }
+        assertEquals(16, feasible, "14 single jumps + 2 ladder climbs");
+        assertEquals(14, jumps, "feasible single jumps");
+        assertEquals(2, ladders, "feasible ladder climbs");
+        assertEquals(4, infeasible, "infeasible entries");
+        assertEquals(1, unknown, "unknown entries");
+
+        CatalogEntry headhitter = entry(entries, "headhitter_gap1_ceiling2");
+        assertEquals(FEASIBLE, headhitter.expect, "headhitter must be feasible");
+        assertEquals(CONSTRUCTION, headhitter.labelSource,
+                "headhitter is constructible, not an envelope row");
+        assertTrue(headhitter.tags.contains("ceiling2"), "headhitter keeps ceiling2");
+        assertEquals(0, headhitter.startX);
+        assertEquals(64, headhitter.startY);
+        assertEquals(0, headhitter.startZ);
+        assertEquals(0, headhitter.goalX);
+        assertEquals(64, headhitter.goalY);
+        assertEquals(2, headhitter.goalZ);
+
+        CatalogEntry climb2 = entry(entries, "ladder_climb2");
+        assertEquals(66, climb2.goalY, "ladder_climb2 goal");
+        assertEquals(1, climb2.goalZ, "ladder_climb2 goal");
+        CatalogEntry climb4 = entry(entries, "ladder_climb4");
+        assertEquals(68, climb4.goalY, "ladder_climb4 goal");
+        assertEquals(1, climb4.goalZ, "ladder_climb4 goal");
+    }
+
+    private static CatalogEntry entry(List<CatalogEntry> entries, String id) {
+        for (CatalogEntry entry : entries) {
+            if (entry.id.equals(id)) {
+                return entry;
+            }
+        }
+        throw new AssertionError("catalog has no entry " + id);
     }
 
     private static File workDir() {

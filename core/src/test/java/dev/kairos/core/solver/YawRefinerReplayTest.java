@@ -11,15 +11,14 @@ import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Task 2.7 L4 replay gate: once the manual in-game run exists, its trace must match
+ * Task 2.7 L4 replay gate: the manual in-game trace must match
  * {@link dev.kairos.core.sim.MovementSim} bit-exactly, land on the tight target, and hash
  * exactly as recorded in the generated result file.
  *
- * <p>The trace and result are external/manual artifacts. While they are absent this test
- * is skipped with the exact command to run; it never manufactures a trace.
+ * <p>The trace and result are committed evidence. A missing file is a failure, never a
+ * skip; this test never manufactures a trace.
  */
 class YawRefinerReplayTest {
 
@@ -27,11 +26,9 @@ class YawRefinerReplayTest {
     void committedTraceMatchesSimAndResult() throws IOException {
         File root = YawRefinerScenarioGenerator.repoRoot();
         File trace = new File(root, YawRefinerScenarioGenerator.TRACE_PATH);
-        assumeTrue(trace.isFile(),
-                "in-game replay pending: run /kairos scenario run "
-                        + YawRefinerScenarioGenerator.SCENARIO_NAME
-                        + " in the 1.8.9 dev client and copy the trace to "
-                        + YawRefinerScenarioGenerator.TRACE_PATH);
+        assertTrue(trace.isFile(),
+                "missing committed trace " + YawRefinerScenarioGenerator.TRACE_PATH
+                        + "; the L4 replay evidence must not be skipped");
 
         File result = new File(root, YawRefinerScenarioGenerator.RESULT_PATH);
         assertTrue(result.isFile(),
